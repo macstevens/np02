@@ -1,0 +1,73 @@
+np02 -- Newport Algorithm Library Version 02
+
+
+LICENSE
+
+Copyright (c) 2023 Mac Stevens <stevensm@earthlink.net> <www.macstevens.net>
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+Reference: https://opensource.org/licenses/ISC
+
+
+
+DESCRIPTION
+
+This library supports efficient 2D Shape Algorithms:
+  Spatial index, i.e., locator grid for quickly locating nearby shapes.
+  Determine if two shapes overlap.
+  Determining Shape-Shape intersection point.
+  Find shortest line segment connecting two shapes.
+  
+
+
+
+BUILD TOOLS
+
+  IDE: SlickEdit Version 11.0.0 Copyright 1988-2006 SlickEdit Inc.
+       Technical Support Phone: 1 919.473.0070
+       Technical Support Email: support@slickedit.com
+
+  Cygwin v 3.1.7
+       CYGWIN_NT-10.0 Lenovo-PC 3.1.7(0.340/5/3) 2020-08-22 17:48 x86_64 Cygwin
+       https://www.cygwin.com/install.html
+
+  Compiler:
+       gcc (GCC) 10.2.0
+
+
+  
+BUILD
+
+Requires cf01 library.
+
+1. Start Cygwin
+2. >cd np02/slickedit_gcc
+3. >make --makefile=np02.mak CFG=Debug
+4. >make --makefile=np02_test.mak CFG=Debug
+(configurations = Debug, Release, or Profile)
+
+
+TEST
+
+1. Start Cygwin
+2. >cd np02/slickedit_gcc/Debug
+3. >./np02_test.exe --test=1 --test-rand-seed=17 --test-iterations=10
+4. >./np02_test.exe --test=2 --test-rand-seed=43 --test-iterations=10
+5. Open bitmap files found in same directory.
+
+
+
+WINDOWS DEPLOYMENT
+
+In same directory as np02_test.exe, place the following files:
+  cyggcc_s-seh-1.dll
+  cygstdc++-6.dll
+  cygwin1.dll
+
+These can be found in [CYGWIN INSTALLATION DIRECTORY]\cygwin\cygwin64\bin
+
+
+

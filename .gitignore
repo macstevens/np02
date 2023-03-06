@@ -1,0 +1,6 @@
+*.o
+*.a
+*.exe
+*.vpwhist
+*.vtg
+/slickedit_gcc/Debug/
