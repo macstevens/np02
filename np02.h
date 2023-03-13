@@ -109,11 +109,9 @@ class np02_polygon;
 class np02_loc_grid_dim;
 class np02_loc_grid_node;
 class np02_loc_grid;
+class np02_shp_alloc;
 class np02_shape_test;
 
-
-class np02_db_object;
-class np02_workspace;
 
 
 /* STL containers*/
@@ -181,6 +179,15 @@ typedef std::vector<np02_xy> np02_xy_vec;
 typedef np02_xy_vec::const_iterator np02_xy_citr;
 typedef np02_xy_vec::iterator np02_xy_itr;
 
+typedef uint32_t shape_idx_type;
+typedef uint64_t shp_owner_idx_type;
+typedef uint64_t lyr_idx_type;
+
+#define NP02_SHAPE_MAX_IDX (std::numeric_limits<shape_idx_type>::max()/4)
+#define NP02_SHP_OWNER_INVALID_IDX (std::numeric_limits<shp_owner_idx_type>::max())
+#define NP02_LYR_INVALID_IDX (std::numeric_limits<lyr_idx_type>::max())
+
+
 enum np02_shape_type{
     NP02_SHAPE_TYPE_SHAPE,
     NP02_SHAPE_TYPE_CIRCLE,
@@ -199,28 +206,30 @@ public:
     typedef type_idx_shp_vec::const_iterator type_idx_shp_vec_citr;
 private:
     np02_shape_type m_shape_type; /* type+idx uniquely identifies shape */
-    uint32_t m_shape_idx;
-    np02_db_object *m_db_obj_owner;
+    shape_idx_type m_shape_idx;
+    shp_owner_idx_type m_shp_owner_idx;
+    np02_shp_alloc *m_shp_alloc;
     np02_loc_grid_node *m_head_loc_grid_node;
 protected:
     void set_shape_type(const np02_shape_type& shape_type){
         m_shape_type = shape_type; }
 public:
     np02_shape();
+    virtual void destruct();
     virtual ~np02_shape();
     np02_shape_type get_shape_type() const{return m_shape_type;}
-    void set_shape_idx(const uint32_t& shape_idx){m_shape_idx=shape_idx;}
-    uint32_t get_shape_idx() const{return m_shape_idx;}
-    void set_db_obj_owner(np02_db_object *db_obj_owner){
-        m_db_obj_owner = db_obj_owner; }
-    np02_db_object *get_db_obj_owner() const{return m_db_obj_owner;}
-    //np02_layer *get_db_obj_layer() const;
+    void set_shape_idx(const shape_idx_type& shape_idx){m_shape_idx=shape_idx;}
+    shape_idx_type get_shape_idx() const{return m_shape_idx;}
+    shp_owner_idx_type get_shp_owner_index() const{ return m_shp_owner_idx; }
+    void set_shp_owner_idx(const shp_owner_idx_type& i){m_shp_owner_idx=i;}
+    void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
+    np02_shp_alloc *get_shp_alloc() const { return m_shp_alloc; }
+    lyr_idx_type get_lyr_idx() const;
     void set_head_loc_grid_node(np02_loc_grid_node *n){
         m_head_loc_grid_node = n; }
     np02_loc_grid_node *get_head_loc_grid_node() const{
         return m_head_loc_grid_node;}
     np02_loc_grid *get_loc_grid() const;
-    np02_workspace *get_workspace() const;
     void get_local_shapes(type_idx_shp_vec *local_shapes) const;
 
     virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const=0;
@@ -629,7 +638,7 @@ public:
 
 /*
   +---------------------------------------------------------------------------------------+
-  |np02_shape                                                                         |
+  |np02_shape                                                                             |
   |m_loc_grid_head_node+                                                                  |
   +--------------------|------------------------------------------------------------------+
                        |  ^                   ^                   ^                   ^
@@ -644,7 +653,7 @@ public:
 
 
   +----------------------------------------------------------------------------------------+
-  |np02_loc_grid                                                                       |
+  |np02_loc_grid                                                                           |
   |            +-----------------+-----------------+-----------------+-----------------+   |                                                   |
   |            |   i=0     j=0   |   i=0     j=1   |   i=1     j=0   |   i=1     j=1   |   |
   |            +-----------------+-----------------+-----------------+-----------------+   |                                                   |
@@ -721,7 +730,8 @@ public:
     np02_loc_grid_node *get_next() const { return m_next; }
     np02_loc_grid_node *get_s_prev() const { return m_s_prev; }
     np02_loc_grid_node *get_s_next() const { return m_s_next; }
-    np02_workspace *get_workspace() const;
+    np02_shp_alloc *get_shp_alloc() const;
+    lyr_idx_type get_lyr_idx() const;
 
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
@@ -745,10 +755,11 @@ public:
     typedef shp_type_idx_shape_vec::const_iterator shp_type_idx_shape_vec_citr;
     typedef shp_type_idx_shape_vec::iterator shp_type_idx_shape_vec_itr;
 private:
-    size_t m_alloc_idx;
-    //layer *m_owner;
+    np02_shp_alloc *m_shp_alloc;
+    size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_loc_grid_by_idx() */
+    lyr_idx_type m_lyr_idx;
     np02_loc_grid_dim m_loc_grid_dim;
-    double m_extra_search_d; /* extra margin when adding shapes to loc*/
+    double m_extra_search_d;/* extra margin when adding shapes*/
     loc_grid_node_vec m_loc_grid_vec;
     shp_type_idx_shape_vec m_idx_shape_vec;/* temporary vec for shape search */
     np02_uint16_pair_vec m_idx_pair_vec; /* temporary vec */
@@ -756,16 +767,17 @@ public:
     np02_loc_grid();
    ~np02_loc_grid();
 
+    void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
     void set_alloc_idx( const size_t& i ){ m_alloc_idx = i; }
-    //void set_owner( layer *owner ){m_owner = owner; }
+    void set_lyr_idx( const lyr_idx_type& i ){m_lyr_idx = i; }
     void set_extra_search_d(const double& d){m_extra_search_d = d;}
     void init_loc_grid( const np02_loc_grid_dim& d );
     void insert_shape_in_loc_grid(np02_shape *shape);
     void remove_shape_from_loc_grid(np02_shape *shape);
 
+    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
     const size_t& get_alloc_idx() const{ return m_alloc_idx; }
-    //layer *get_owner() const { return m_owner; }
-    np02_workspace *get_workspace() const;
+    lyr_idx_type get_lyr_idx() const { return m_lyr_idx; }
     const double& get_extra_search_d() const{ return m_extra_search_d; }
     const np02_loc_grid_dim& get_loc_grid_dim()const{return m_loc_grid_dim;}
     const np02_loc_grid_node *get_loc_grid_head_node(
@@ -798,20 +810,8 @@ private:
     void clear_loc_grid();
 };
 
-
-class np02_db_object{
-private:
-public:
-    np02_db_object();
-    virtual ~np02_db_object();
-    //virtual np02_layer *get_db_obj_layer() const;
-    virtual np02_workspace *get_workspace() const=0;
-    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
-                     size_t *err_msg_pos ) const;
-    virtual std::ostream& ostream_output(std::ostream& os) const;
-};
-
-class np02_workspace{
+/* Shape Allocator */
+class np02_shp_alloc{
 private:
     typedef std::vector<np02_circle *> circle_vec;
     typedef std::vector<np02_line_seg *> line_seg_vec;
@@ -820,7 +820,6 @@ private:
     typedef std::vector<np02_loc_grid_node *> loc_grid_node_vec;
     typedef std::vector<np02_loc_grid *> loc_grid_vec;
 private:
-    /* allocator */
     circle_vec m_alloc_circle_vec;
     np02_circle *m_circle_free_chain;
     line_seg_vec m_alloc_line_seg_vec;
@@ -834,10 +833,9 @@ private:
     loc_grid_vec m_alloc_loc_grid_vec;
 
 public:
-    np02_workspace();
-    virtual ~np02_workspace();
+    np02_shp_alloc();
+    virtual ~np02_shp_alloc();
 
-    /* allocator */
     void free_shape(np02_shape *shape);
     size_t alloc_get_circle_count() const{ return m_alloc_circle_vec.size(); }
     np02_circle *alloc_get_circle_by_idx(const size_t& i) const{
@@ -931,14 +929,14 @@ private:
         return low + ((high-low)*static_cast<double>(get_rand_int())/
         static_cast<double>(RAND_MAX-1));
         }
-    void make_rand_shapes( np02_workspace *wksp, const int& ww, 
+    void make_rand_shapes( np02_shp_alloc *shp_alloc, const int& ww, 
         const int& hh,  const double& basic_length,
         std::vector<np02_shape *> *shapes,
         std::vector<np02_bmp_color> *colors );
-    np02_shape *make_rand_shape( np02_workspace *wksp,
+    np02_shape *make_rand_shape( np02_shp_alloc *shp_alloc,
         const np02_xy& shp_ctr, const double& basic_length,
         np02_bmp_color *color );
-    void free_shapes( np02_workspace *wksp,
+    void free_shapes( np02_shp_alloc *shp_alloc,
         std::vector<np02_shape *> *shapes );
 
     int execute_test_1();

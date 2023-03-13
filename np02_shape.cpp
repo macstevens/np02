@@ -62,40 +62,39 @@ Reference: https://opensource.org/licenses/ISC
 
 namespace np02 {
 
-#define NP02_SHAPE_MAX_IDX (std::numeric_limits<uint32_t>::max()/4)
-
 
 np02_shape::np02_shape():m_shape_type(NP02_SHAPE_TYPE_SHAPE),
-    m_shape_idx(0), m_db_obj_owner(NULL),
-    m_head_loc_grid_node(NULL){}
+    m_shape_idx(0), m_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX),
+    m_shp_alloc(NULL),  m_head_loc_grid_node(NULL){}
 
-np02_shape::~np02_shape(){
+/* free resources */
+void np02_shape::destruct(){
 if(NULL != m_head_loc_grid_node ){
     np02_loc_grid *loc_grid = m_head_loc_grid_node->get_loc_grid();
     /* m_head_loc_grid_node is used as free chain pointer, so
     m_head_loc_grid_node->get_loc_grid() might be NULL if 
-    m_db_obj_owner is NULL */
-    AA_ALWAYS_ASSERT( (NULL != loc_grid) || (NULL == m_db_obj_owner) )
+    m_shp_owner_idx is invalid */
+    AA_ALWAYS_ASSERT( (NULL != loc_grid) ||
+       (NP02_SHP_OWNER_INVALID_IDX == m_shp_owner_idx) )
     if(NULL != loc_grid){
         loc_grid->remove_shape_from_loc_grid(this);
         }
     }
 }
 
-//np02_layer *np02_shape::get_db_obj_layer() const{
-//return (NULL == m_db_obj_owner) ? NULL : m_db_obj_owner->get_db_obj_layer();
-//}
+np02_shape::~np02_shape(){
+destruct();
+}
+
+lyr_idx_type np02_shape::get_lyr_idx() const{
+return (NULL == m_head_loc_grid_node) ? NP02_LYR_INVALID_IDX : 
+    m_head_loc_grid_node->get_lyr_idx();
+}
 
 np02_loc_grid *np02_shape::get_loc_grid() const{
 np02_loc_grid *g = (NULL == m_head_loc_grid_node) ? NULL :
     m_head_loc_grid_node->get_loc_grid();
 return g;
-}
-
-np02_workspace *np02_shape::get_workspace() const{
-np02_workspace *w = (NULL == m_db_obj_owner) ?
-    NULL : m_db_obj_owner->get_workspace();
-return w;
 }
 
 void np02_shape::get_local_shapes(type_idx_shp_vec *local_shapes) const{
@@ -396,8 +395,9 @@ if(m_shape_idx > NP02_SHAPE_MAX_IDX){
 
 /* m_head_loc_grid_node is used as free chain pointer, so
 m_head_loc_grid_node->get_loc_grid() might be NULL if 
-m_db_obj_owner is NULL */
-if(( NULL != m_head_loc_grid_node) && (NULL != m_db_obj_owner) ){
+m_shp_owner_idx is invalid */
+if(( NULL != m_head_loc_grid_node) && 
+    (NP02_SHP_OWNER_INVALID_IDX == m_shp_owner_idx) ){
     const np02_loc_grid *loc_grid = m_head_loc_grid_node->get_loc_grid();
     np02_loc_grid_dim loc_grid_dim;
     if(NULL == loc_grid){
@@ -468,8 +468,9 @@ os << "<this>" << this << "</this>\n";
 os << std::dec;
 os << "<shape_type>" << static_cast<int>(m_shape_type) << "</shape_type>\n";
 os << "<shape_idx>" << m_shape_idx << "</shape_idx>\n";
+os << "<shp_owner_idx>" << m_shp_owner_idx << "</shp_owner_idx>\n";
 os << std::hex;
-os << "<db_obj_owner>" << m_db_obj_owner << "</db_obj_owner>\n";
+os << "<shp_alloc>" << m_shp_alloc << "</shp_alloc>\n";
 os << "<head_loc_grid_node>" << m_head_loc_grid_node << "</head_loc_grid_node>\n";
 os << std::dec;
 os << "</shape>\n";
@@ -964,14 +965,14 @@ if(NP02_SHAPE_TYPE_CIRCLE != get_shape_type() ){
             "circle: this=%x  m_shape_type=%i\n", this, get_shape_type()); 
     }
 
-const np02_workspace *workspace = get_workspace();
-if((NULL != workspace) && 
-    (this != workspace->alloc_get_circle_by_idx(get_shape_idx()))){
+const np02_shp_alloc *shp_alloc = get_shp_alloc();
+if((NULL != shp_alloc) && 
+    (this != shp_alloc->alloc_get_circle_by_idx(get_shape_idx()))){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "circle: this=%x  != (workspace=%x) circle_by_idx(idx=%i)=%x\n",
-        this, workspace, get_shape_idx(),
-        workspace->alloc_get_circle_by_idx(get_shape_idx())); 
+        "circle: this=%x  != (shp_alloc=%x) circle_by_idx(idx=%i)=%x\n",
+        this, shp_alloc, get_shape_idx(),
+        shp_alloc->alloc_get_circle_by_idx(get_shape_idx())); 
     }
 
 if(m_radius < 0.0){
@@ -1286,7 +1287,6 @@ const np02_xy dab(xy_b.get_x()-xy_a.get_x(), xy_b.get_y()-xy_a.get_y());
 const double dab_len_sq=(dab.get_x()*dab.get_x())+(dab.get_y()*dab.get_y());
 if( dab_len_sq > 1e-40){
     const double dab_len=sqrt(dab_len_sq);
-    //const np02_xy dab_unit_v(dab.get_x()/dab_len,dab.get_y()/dab_len);
     const np02_xy dap00(m_p00.get_x()-xy_a.get_x(),m_p00.get_y()-xy_a.get_y());
     const np02_xy dap01(m_p01.get_x()-xy_a.get_x(),m_p01.get_y()-xy_a.get_y());
     const np02_xy dap10(m_p10.get_x()-xy_a.get_x(),m_p10.get_y()-xy_a.get_y());
@@ -1865,14 +1865,14 @@ if(NP02_SHAPE_TYPE_RECT != get_shape_type() ){
             "rect: this=%x  shape_type=%i\n", this, get_shape_type()); 
     }
 
-const np02_workspace *workspace = get_workspace();
-if((NULL != workspace) && 
-    (this != workspace->alloc_get_rect_by_idx(get_shape_idx()))){
+const np02_shp_alloc *shp_alloc = get_shp_alloc();
+if((NULL != shp_alloc) && 
+    (this != shp_alloc->alloc_get_rect_by_idx(get_shape_idx()))){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "circle: this=%x  != (workspace=%x) rect_by_idx(idx=%i)=%x\n",
-        this, workspace, get_shape_idx(),
-        workspace->alloc_get_rect_by_idx(get_shape_idx())); 
+        "circle: this=%x  != (shp_alloc=%x) rect_by_idx(idx=%i)=%x\n",
+        this, shp_alloc, get_shape_idx(),
+        shp_alloc->alloc_get_rect_by_idx(get_shape_idx())); 
     }
 
 err_cnt += verify_data_num(err_msg,err_msg_capacity,err_msg_pos);
@@ -1961,11 +1961,13 @@ if(fabs(fwd_cross_ctr - m_fwd_cross_ctr) > max_d_err){
 
 dx = m_p10.get_x() - m_p00.get_x();
 dy = m_p10.get_y() - m_p00.get_y();
-const double w0_sq = (dx*dx) - (dy*dy);
+const double w0_sq = (dx*dx) + (dy*dy);
 if( fabs(w0_sq - w_sq) > max_d_sq_err){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "data error: %s[%i] %s\n", __FILE__, __LINE__, __FUNCTION__);
+        "data error: %s[%i] %s  dx=%g  dy=%g  w0_sq=%g  w_sq=%g  "
+        "max_d_sq_err=%g\n", __FILE__, __LINE__, __FUNCTION__,
+        dx, dy, w0_sq, w_sq, max_d_sq_err );
     }
 if(fabs((m_fwd.get_x()*m_w) - dx) > max_d_err){
     ++err_cnt;
@@ -1980,11 +1982,13 @@ if(fabs((m_fwd.get_y()*m_w) - dy) > max_d_err){
 
 dx = m_p11.get_x() - m_p01.get_x();
 dy = m_p11.get_y() - m_p01.get_y();
-const double w1_sq = (dx*dx) - (dy*dy);
+const double w1_sq = (dx*dx) + (dy*dy);
 if( fabs(w1_sq - w_sq) > max_d_sq_err){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "data error: %s[%i] %s\n", __FILE__, __LINE__, __FUNCTION__);
+        "data error: %s[%i] %s  dx=%g  dy=%g  w1_sq=%g  w_sq=%g  "
+        "max_d_sq_err=%g\n", __FILE__, __LINE__, __FUNCTION__,
+        dx, dy, w1_sq, w_sq, max_d_sq_err );
     }
 if(fabs((m_fwd.get_x()*m_w) - dx) > max_d_err){
     ++err_cnt;
@@ -1999,10 +2003,12 @@ if(fabs((m_fwd.get_y()*m_w) - dy) > max_d_err){
 
 dx = m_p01.get_x() - m_p00.get_x();
 dy = m_p01.get_y() - m_p00.get_y();
-const double h0_sq = (dx*dx) - (dy*dy);
+const double h0_sq = (dx*dx) + (dy*dy);
 if( fabs(h0_sq - h_sq) > max_d_sq_err){
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "data error: %s[%i] %s\n", __FILE__, __LINE__, __FUNCTION__);
+        "data error: %s[%i] %s  dx=%g  dy=%g  h0_sq=%g  h_sq=%g  "
+        "max_d_sq_err=%g\n", __FILE__, __LINE__, __FUNCTION__,
+        dx, dy, h0_sq, h_sq, max_d_sq_err );
     ++err_cnt;
     }
 if(fabs((-m_fwd.get_y()*m_h) - dx) > max_d_err){
@@ -2018,11 +2024,13 @@ if(fabs((m_fwd.get_x()*m_h) - dy) > max_d_err){
 
 dx = m_p11.get_x() - m_p10.get_x();
 dy = m_p11.get_y() - m_p10.get_y();
-const double h1_sq = (dx*dx) - (dy*dy);
+const double h1_sq = (dx*dx) + (dy*dy);
 if( fabs(h1_sq - h_sq) > max_d_sq_err){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "data error: %s[%i] %s\n", __FILE__, __LINE__, __FUNCTION__);
+        "data error: %s[%i] %s  dx=%g  dy=%g  h1_sq=%g  h_sq=%g  "
+        "max_d_sq_err=%g\n", __FILE__, __LINE__, __FUNCTION__,
+        dx, dy, h1_sq, h_sq, max_d_sq_err );
     }
 if(fabs((-m_fwd.get_y()*m_h) - dx) > max_d_err){
     ++err_cnt;
@@ -2549,17 +2557,19 @@ if(AA_SHOULD_RUN_XDBG(CF01_AA_DEBUG_LEVEL_1)){
         oth_nr_xy.get_distance_to(line_seg_near_xy2);
 
     if( d > 0.0 ){
-        //if(fabs(d - d2) >= (2 * d2_err_estimate)){
-        //    std::cout << "fabs(d - d2) >= (2 * d2_err_estimate)\n";
-        //    std::cout << "d = " << d << "\n";
-        //    std::cout << "d2 = " << d2 << "\n";
-        //    std::cout << "d2_err_estimate = " << d2_err_estimate << "\n";
-        //    std::cout << "nr_xy = " << nr_xy.get_x() << "," << nr_xy.get_y() << "\n";
-        //    std::cout << "near_xy2 = " << near_xy2.get_x() << "," << near_xy2.get_y() << "\n";
-        //    std::cout << "oth_nr_xy = " << oth_nr_xy.get_x() << "," << oth_nr_xy.get_y() << "\n";
-        //    std::cout << "line_seg_near_xy2 = " << line_seg_near_xy2.get_x()
-        //        << "," << line_seg_near_xy2.get_y() << "\n";
-        //    }
+        /*
+        if(fabs(d - d2) >= (2 * d2_err_estimate)){
+            std::cout << "fabs(d - d2) >= (2 * d2_err_estimate)\n";
+            std::cout << "d = " << d << "\n";
+            std::cout << "d2 = " << d2 << "\n";
+            std::cout << "d2_err_estimate = " << d2_err_estimate << "\n";
+            std::cout << "nr_xy = " << nr_xy.get_x() << "," << nr_xy.get_y() << "\n";
+            std::cout << "near_xy2 = " << near_xy2.get_x() << "," << near_xy2.get_y() << "\n";
+            std::cout << "oth_nr_xy = " << oth_nr_xy.get_x() << "," << oth_nr_xy.get_y() << "\n";
+            std::cout << "line_seg_near_xy2 = " << line_seg_near_xy2.get_x()
+                << "," << line_seg_near_xy2.get_y() << "\n";
+            }
+        */
 
         AA_XDBG_ASSERT(fabs(d - d2) < (2 * d2_err_estimate),CF01_AA_DEBUG_LEVEL_1 );
         AA_XDBG_ASSERT(near_xy_err < (2 * d2_err_estimate),CF01_AA_DEBUG_LEVEL_1 );
@@ -2766,14 +2776,14 @@ if(NP02_SHAPE_TYPE_LINE_SEG != get_shape_type() ){
             "line_seg: this=%x  shape_type=%i\n", this, get_shape_type()); 
     }
 
-const np02_workspace *workspace = get_workspace();
-if((NULL != workspace) && 
-    (this != workspace->alloc_get_line_seg_by_idx(get_shape_idx()))){
+const np02_shp_alloc *shp_alloc = get_shp_alloc();
+if((NULL != shp_alloc) && 
+    (this != shp_alloc->alloc_get_line_seg_by_idx(get_shape_idx()))){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "line_seg: this=%x  != (workspace=%x) line_seg_by_idx(idx=%i)=%x\n",
-        this, workspace, get_shape_idx(),
-        workspace->alloc_get_line_seg_by_idx(get_shape_idx())); 
+        "line_seg: this=%x  != (shp_alloc=%x) line_seg_by_idx(idx=%i)=%x\n",
+        this, shp_alloc, get_shape_idx(),
+        shp_alloc->alloc_get_line_seg_by_idx(get_shape_idx())); 
     }
 
 err_cnt+=verify_data_num(err_msg,err_msg_capacity,err_msg_pos);
@@ -3024,14 +3034,14 @@ if(NP02_SHAPE_TYPE_POLYGON != get_shape_type() ){
             "polygon: this=%x  shape_type=%i\n", this, get_shape_type()); 
     }
 
-const np02_workspace *workspace = get_workspace();
-if((NULL != workspace) && 
-    (this != workspace->alloc_get_polygon_by_idx(get_shape_idx()))){
+const np02_shp_alloc *shp_alloc = get_shp_alloc();
+if((NULL != shp_alloc) && 
+    (this != shp_alloc->alloc_get_polygon_by_idx(get_shape_idx()))){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-        "polygon: this=%x  != (workspace=%x) polygon_by_idx(idx=%i)=%x\n",
-        this, workspace, get_shape_idx(),
-        workspace->alloc_get_polygon_by_idx(get_shape_idx())); 
+        "polygon: this=%x  != (shp_alloc=%x) polygon_by_idx(idx=%i)=%x\n",
+        this, shp_alloc, get_shape_idx(),
+        shp_alloc->alloc_get_polygon_by_idx(get_shape_idx())); 
     }
 
 
@@ -3219,34 +3229,36 @@ if(NULL != bmp_file){
     }
 }
 
-np02_workspace *np02_loc_grid_node::get_workspace() const{
-return (NULL == m_loc_grid) ? NULL : m_loc_grid->get_workspace();
+np02_shp_alloc *np02_loc_grid_node::get_shp_alloc() const{
+return (NULL == m_loc_grid) ? NULL : m_loc_grid->get_shp_alloc();
+}
+
+lyr_idx_type np02_loc_grid_node::get_lyr_idx() const{
+return (NULL == m_loc_grid) ?
+    NP02_LYR_INVALID_IDX : m_loc_grid->get_lyr_idx();
 }
 
 int np02_loc_grid_node::verify_data( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
-#if 0
-size_t loc_grid_node_s_count;
+size_t loc_grid_node_s_count=0;
 size_t max_loc_grid_node_s_count=0;
-size_t loc_grid_node_count;
-size_t max_loc_grid_node_count=0;
-const np02_loc_grid_node *loc_grid_node;
-size_t found_count;
+size_t loc_grid_node_count=0;
+size_t max_loc_grid_node_count = 0xFFFFFF;
+const np02_loc_grid_node *loc_grid_node=NULL;
+size_t found_count=0;
 np02_loc_grid_dim loc_grid_dim;
 
-const np02_layer *layer = (NULL == m_loc_grid) ?
-    NULL : m_loc_grid->get_owner();
-const np02_workspace *lyr_workspace =
-    (NULL == layer) ? NULL : layer->get_workspace();
+const np02_shp_alloc *loc_grid_shp_alloc =
+    (NULL == m_loc_grid) ? NULL : m_loc_grid->get_shp_alloc();
 
-if(NULL != lyr_workspace){
-    if(this != lyr_workspace->alloc_get_loc_grid_node_by_idx(m_alloc_idx)){
+if(NULL != loc_grid_shp_alloc){
+    if(this != loc_grid_shp_alloc->alloc_get_loc_grid_node_by_idx(m_alloc_idx)){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "loc_grid_node:%x != (workspace=%x)->get node by (idx=%i) = %x\n",
-            this, lyr_workspace, m_alloc_idx,
-            lyr_workspace->alloc_get_loc_grid_node_by_idx(m_alloc_idx) );
+            "loc_grid_node:%x != (shp_alloc=%x)->get node by (idx=%i) = %x\n",
+            this, loc_grid_shp_alloc, m_alloc_idx,
+            loc_grid_shp_alloc->alloc_get_loc_grid_node_by_idx(m_alloc_idx) );
         }
     }
 
@@ -3254,28 +3266,28 @@ if( NULL != m_loc_grid ) {
     loc_grid_dim = m_loc_grid->get_loc_grid_dim();
     max_loc_grid_node_s_count = static_cast<size_t>(loc_grid_dim.get_w()) 
         * static_cast<size_t>(loc_grid_dim.get_h());
-    if(NULL == lyr_workspace){
+    if(NULL == loc_grid_shp_alloc){
         max_loc_grid_node_count = 0xFFFFFF;
         }
     else{
-        max_loc_grid_node_count = (lyr_workspace->alloc_get_circle_count()) +
-            (lyr_workspace->alloc_get_line_seg_count()) +
-            (lyr_workspace->alloc_get_rect_count()) +
-            (lyr_workspace->alloc_get_polygon_count());
+        max_loc_grid_node_count = (loc_grid_shp_alloc->alloc_get_circle_count()) +
+            (loc_grid_shp_alloc->alloc_get_line_seg_count()) +
+            (loc_grid_shp_alloc->alloc_get_rect_count()) +
+            (loc_grid_shp_alloc->alloc_get_polygon_count());
         }
     }
 
 if(NULL != m_owner){
-    const np02_db_object *shape_owner = m_owner->get_db_obj_owner();
-    const np02_workspace *shape_owner_workspace = (NULL == shape_owner) ?
-        NULL : shape_owner->get_workspace();
-    if(shape_owner_workspace != lyr_workspace){
+    const shp_owner_idx_type shp_owner_idx = m_owner->get_shp_owner_index();
+    const np02_shp_alloc *shape_shp_alloc = (NULL == m_owner) ?
+        NULL : m_owner->get_shp_alloc();
+    if(shape_shp_alloc != loc_grid_shp_alloc){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "loc_grid_node:%x (owner=%x/type=%i)->(owner=%x)->workspace=%x"
-             " != (loc_grid=%x)->(owner=%x)->workspace=%x\n",
-            this, m_owner, m_owner->get_shape_type(), shape_owner,
-            shape_owner_workspace, m_loc_grid, layer, lyr_workspace);
+            "loc_grid_node:%x (owner=%x/type=%i)->shp_alloc=%x"
+             " != (loc_grid=%x)->shp_alloc=%x\n",
+            this, m_owner, m_owner->get_shape_type(),
+            shape_shp_alloc, m_loc_grid, loc_grid_shp_alloc);
         }
 
     /* m_owner->loc_grid_head->s_next->s_next ... this*/
@@ -3331,7 +3343,7 @@ if(NULL != m_loc_grid && NULL != m_owner){
     }
 
 if(NULL != m_loc_grid && NULL == m_owner){
-    /* should be found on workspace->m_loc_grid_node_free_chain */
+    /* should be found on shp_alloc->m_loc_grid_node_free_chain */
     }
     
 if(NULL != m_prev){
@@ -3422,7 +3434,6 @@ if(NULL != m_s_next){
             this, m_s_next, m_s_next->m_loc_grid, m_loc_grid);
         }
     }
-#endif
 return err_cnt;
 }
 
@@ -3447,9 +3458,10 @@ void np02_loc_grid_node::write_bmp_file(const np02_xy& xy_min,
 
 
 np02_loc_grid::np02_loc_grid():
-//m_owner(NULL), 
-m_loc_grid_dim(),
-    m_loc_grid_vec(),m_extra_search_d(0.0),m_idx_shape_vec(),m_idx_pair_vec(){}
+    m_shp_alloc(NULL), m_alloc_idx(0), m_lyr_idx(NP02_LYR_INVALID_IDX),
+    m_loc_grid_dim(), m_extra_search_d(0.0), m_loc_grid_vec(),
+    m_idx_shape_vec(), m_idx_pair_vec()
+{}
 
 np02_loc_grid::~np02_loc_grid(){
 AA_INCR_CALL_DEPTH();
@@ -3461,6 +3473,8 @@ void np02_loc_grid::init_loc_grid( const np02_loc_grid_dim& d ){
 AA_INCR_CALL_DEPTH();
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
+AA_ALWAYS_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
+    AA_ERR_BUF_POS_PTR()));
 size_t loc_grid_sz;
 if(!m_loc_grid_vec.empty()){
     clear_loc_grid();}
@@ -3476,8 +3490,6 @@ AA_DECR_CALL_DEPTH();
 void np02_loc_grid::insert_shape_in_loc_grid(np02_shape *shape){
 AA_INCR_CALL_DEPTH();
 AA_ALWAYS_ASSERT(NULL != shape);
-//AUTO_ASSERT((NULL == m_owner) || (NULL == shape->get_db_obj_owner()) ||
-//    (m_owner->get_workspace() == shape->get_db_obj_owner()->get_workspace()));
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
 AUTO_ASSERT(0 == shape->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -3580,11 +3592,6 @@ AUTO_ASSERT(0 == shape->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
 AA_DECR_CALL_DEPTH();
-}
-
-np02_workspace *np02_loc_grid::get_workspace() const{
-//return (NULL == m_owner) ? NULL : m_owner->get_workspace();
-return NULL;
 }
 
 void np02_loc_grid::get_shapes_near_shape(const np02_shape *s,
@@ -3718,37 +3725,30 @@ int np02_loc_grid::verify_data( char *err_msg,
 int err_cnt = 0;
 
 size_t count, loc_grid_node_vec_sz_check;
-uint16_t w, h, i, j;
-size_t gn_vec_idx;
-np02_shape *shape;
-np02_loc_grid_node *loc_grid_node;
-
-//if((NULL != m_owner) && (this != m_owner->get_loc_grid())){
-//    ++err_cnt;
-//    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-//        "loc_grid=%x  !=  (owner=%x)->loc_grid=%x\n",
-//        this, m_owner, m_owner->get_loc_grid() );
-//    }
+uint16_t w=0, h=0, i=0, j=0;
+size_t gn_vec_idx=0;
+np02_shape *shape=NULL;
+np02_loc_grid_node *loc_grid_node=NULL;
 
 w=m_loc_grid_dim.get_w();
 h=m_loc_grid_dim.get_h();
 err_cnt=m_loc_grid_dim.verify_data(err_msg,err_msg_capacity,err_msg_pos);
 loc_grid_node_vec_sz_check = static_cast<size_t>(w) * static_cast<size_t>(h);
 size_t max_expected_shape_count= 1000000;
-const np02_workspace *workspace = get_workspace();
-if(NULL != workspace){
-    max_expected_shape_count = workspace->alloc_get_circle_count() +
-        workspace->alloc_get_line_seg_count() +
-        workspace->alloc_get_rect_count() +
-        workspace->alloc_get_polygon_count();
+const np02_shp_alloc *shp_alloc = get_shp_alloc();
+if(NULL != shp_alloc){
+    max_expected_shape_count = shp_alloc->alloc_get_circle_count() +
+        shp_alloc->alloc_get_line_seg_count() +
+        shp_alloc->alloc_get_rect_count() +
+        shp_alloc->alloc_get_polygon_count();
 
-    if( this != workspace->alloc_get_loc_grid_by_idx(m_alloc_idx)){
+    if( this != shp_alloc->alloc_get_loc_grid_by_idx(m_alloc_idx)){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "loc_grid=%x  !=  workspace=%x->get loc_grid by "
+            "loc_grid=%x  !=  shp_alloc=%x->get loc_grid by "
             "(idx=%i) = %x\n",
-            this, workspace, m_alloc_idx,
-            workspace->alloc_get_loc_grid_by_idx(m_alloc_idx) );
+            this, shp_alloc, m_alloc_idx,
+            shp_alloc->alloc_get_loc_grid_by_idx(m_alloc_idx) );
         }
     }
 
@@ -3941,7 +3941,7 @@ AA_INCR_CALL_DEPTH();
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
 np02_loc_grid_node *n = NULL;
-np02_workspace *w = get_workspace();
+np02_shp_alloc *w = get_shp_alloc();
 if( NULL == w ){ n = new np02_loc_grid_node();  }
 else{ n = w->alloc_loc_grid_node(); }
 if(NULL != n){
@@ -3967,7 +3967,7 @@ AA_INCR_CALL_DEPTH();
 AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(this == n->get_loc_grid());
 
-np02_workspace *w = get_workspace();
+np02_shp_alloc *w = get_shp_alloc();
 if(NULL == w){
     delete n;
     }
@@ -4002,7 +4002,7 @@ for(; lg_itr != m_loc_grid_vec.end(); ++lg_itr){
         while((NULL != lg_node) && (shape_count < max_shape_count)){
             ++shape_count;
             np02_shape *shape = lg_node->get_owner();
-            AUTO_ASSERT(NULL != shape);
+            AA_ALWAYS_ASSERT(NULL != shape);
             remove_shape_from_loc_grid(shape);
             lg_node = *lg_itr;
             }
@@ -4025,7 +4025,7 @@ AA_DECR_CALL_DEPTH();
 
 
 
-np02_workspace::np02_workspace():
+np02_shp_alloc::np02_shp_alloc():
     /* allocator */
     m_alloc_circle_vec(),
     m_circle_free_chain(NULL),
@@ -4045,12 +4045,12 @@ AA_ALWAYS_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
 AA_DECR_CALL_DEPTH();
 }
 
-np02_workspace::~np02_workspace(){
+np02_shp_alloc::~np02_shp_alloc(){
 alloc_delete_all();
 }
 
 
-void np02_workspace::free_shape(np02_shape *shape)
+void np02_shp_alloc::free_shape(np02_shape *shape)
 {
 AA_INCR_CALL_DEPTH();
 if(NULL != shape){
@@ -4075,12 +4075,13 @@ if(NULL != shape){
 AA_DECR_CALL_DEPTH();
 }
 
-np02_circle *np02_workspace::alloc_circle(){
+np02_circle *np02_shp_alloc::alloc_circle(){
 AA_INCR_CALL_DEPTH();
 np02_circle *circle = NULL;
 if(NULL == m_circle_free_chain){
     circle = new np02_circle();
     circle->set_shape_idx(m_alloc_circle_vec.size());
+    circle->set_shp_alloc(this);
     m_alloc_circle_vec.push_back(circle);
     }
 else{
@@ -4094,21 +4095,24 @@ AA_DECR_CALL_DEPTH();
 return circle;
 }
 
-void np02_workspace::free_circle(np02_circle *circle){
-    /* TODO: call circle->destruct() (might be named differently.) to free resources such as locator grid nodes */
+void np02_shp_alloc::free_circle(np02_circle *circle){
+AA_ALWAYS_ASSERT( NULL != circle );
+AA_ALWAYS_ASSERT( this == circle->get_shp_alloc() );
+circle->destruct();
 if(NULL != m_circle_free_chain){
     circle->set_free_chain_next(m_circle_free_chain);
     }
 m_circle_free_chain = circle;
-circle->set_db_obj_owner(NULL);
+circle->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
 }
 
-np02_line_seg *np02_workspace::alloc_line_seg(){
+np02_line_seg *np02_shp_alloc::alloc_line_seg(){
 AA_INCR_CALL_DEPTH();
 np02_line_seg *line_seg = NULL;
 if(NULL == m_line_seg_free_chain){
     line_seg = new np02_line_seg();
     line_seg->set_shape_idx(m_alloc_line_seg_vec.size());
+    line_seg->set_shp_alloc(this);
     m_alloc_line_seg_vec.push_back(line_seg);
     }
 else{
@@ -4122,21 +4126,24 @@ AA_DECR_CALL_DEPTH();
 return line_seg;
 }
 
-void np02_workspace::free_line_seg(np02_line_seg *line_seg){
-    /* TODO: call line_seg->destruct() (might be named differently.) to free resources such as locator grid nodes */
+void np02_shp_alloc::free_line_seg(np02_line_seg *line_seg){
+AA_ALWAYS_ASSERT( NULL != line_seg );
+AA_ALWAYS_ASSERT( this == line_seg->get_shp_alloc() );
+line_seg->destruct();
 if(NULL != m_line_seg_free_chain){
     line_seg->set_free_chain_next(m_line_seg_free_chain);
     }
 m_line_seg_free_chain = line_seg;
-line_seg->set_db_obj_owner(NULL);
+line_seg->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
 }
 
-np02_rect *np02_workspace::alloc_rect(){
+np02_rect *np02_shp_alloc::alloc_rect(){
 AA_INCR_CALL_DEPTH();
 np02_rect *rect = NULL;
 if(NULL == m_rect_free_chain){
     rect = new np02_rect();
     rect->set_shape_idx(m_alloc_rect_vec.size());
+    rect->set_shp_alloc(this);
     m_alloc_rect_vec.push_back(rect);
     }
 else{
@@ -4150,21 +4157,24 @@ AA_DECR_CALL_DEPTH();
 return rect;
 }
 
-void np02_workspace::free_rect(np02_rect *rect){
-    /* TODO: call rect->destruct() (might be named differently.) to free resources such as locator grid nodes */
+void np02_shp_alloc::free_rect(np02_rect *rect){
+AA_ALWAYS_ASSERT( NULL != rect );
+AA_ALWAYS_ASSERT( this == rect->get_shp_alloc() );
+rect->destruct();
 if(NULL != m_rect_free_chain){
     rect->set_free_chain_next(m_rect_free_chain);
     }
 m_rect_free_chain = rect;
-rect->set_db_obj_owner(NULL);
+rect->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
 }
 
-np02_polygon *np02_workspace::alloc_polygon(){
+np02_polygon *np02_shp_alloc::alloc_polygon(){
 AA_INCR_CALL_DEPTH();
 np02_polygon *polygon = NULL;
 if(NULL == m_polygon_free_chain){
     polygon = new np02_polygon();
     polygon->set_shape_idx(m_alloc_polygon_vec.size());
+    polygon->set_shp_alloc(this);
     m_alloc_polygon_vec.push_back(polygon);
     }
 else{
@@ -4178,16 +4188,18 @@ AA_DECR_CALL_DEPTH();
 return polygon;
 }
 
-void np02_workspace::free_polygon(np02_polygon *polygon){
-    /* TODO: call polygon->destruct() (might be named differently.) to free resources such as locator grid nodes */
+void np02_shp_alloc::free_polygon(np02_polygon *polygon){
+AA_ALWAYS_ASSERT( NULL != polygon );
+AA_ALWAYS_ASSERT( this == polygon->get_shp_alloc() );
+polygon->destruct();
 if(NULL != m_polygon_free_chain){
     polygon->set_free_chain_next(m_polygon_free_chain);
     }
 m_polygon_free_chain = polygon;
-polygon->set_db_obj_owner(NULL);
+polygon->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
 }
 
-np02_loc_grid_node *np02_workspace::alloc_loc_grid_node(){
+np02_loc_grid_node *np02_shp_alloc::alloc_loc_grid_node(){
 AA_INCR_CALL_DEPTH();
 np02_loc_grid_node *node = NULL;
 if(NULL == m_loc_grid_node_free_chain){
@@ -4206,7 +4218,7 @@ AA_DECR_CALL_DEPTH();
 return node;
 }
 
-void np02_workspace::free_loc_grid_node(np02_loc_grid_node *loc_grid_node){
+void np02_shp_alloc::free_loc_grid_node(np02_loc_grid_node *loc_grid_node){
 /* TODO: call node->destruct() (might be named differently.) to free resources */
 if(NULL != m_loc_grid_node_free_chain){
     loc_grid_node->set_free_chain_next(m_loc_grid_node_free_chain);
@@ -4215,9 +4227,10 @@ m_loc_grid_node_free_chain = loc_grid_node;
 loc_grid_node->set_owner(NULL);
 }
 
-np02_loc_grid *np02_workspace::alloc_loc_grid(){
+np02_loc_grid *np02_shp_alloc::alloc_loc_grid(){
 AA_INCR_CALL_DEPTH();
 np02_loc_grid *loc_grid = new np02_loc_grid();
+loc_grid->set_shp_alloc(this);
 loc_grid->set_alloc_idx(m_alloc_loc_grid_vec.size());
 m_alloc_loc_grid_vec.push_back(loc_grid);
 AUTO_ASSERT(0 == loc_grid->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -4226,7 +4239,7 @@ AA_DECR_CALL_DEPTH();
 return loc_grid;
 }
 
-void np02_workspace::free_loc_grid(np02_loc_grid *loc_grid){
+void np02_shp_alloc::free_loc_grid(np02_loc_grid *loc_grid){
 if(NULL != loc_grid){
     const size_t& alloc_idx = loc_grid->get_alloc_idx();
     if(alloc_idx >= m_alloc_loc_grid_vec.size()){
@@ -4240,7 +4253,7 @@ if(NULL != loc_grid){
     }
 }
 
-int np02_workspace::verify_data( char *err_msg, const size_t err_msg_capacity,
+int np02_shp_alloc::verify_data( char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
 size_t i;
 int err_cnt = 0;
@@ -4253,8 +4266,8 @@ err_cnt += verify_data_alloc_loc_grid(err_msg, err_msg_capacity, err_msg_pos );
 return err_cnt;
 }
 
-std::ostream& np02_workspace::ostream_output(std::ostream& os) const{
-os << "<workspace><this>" << std::hex << this << std::dec << "</this>\n";
+std::ostream& np02_shp_alloc::ostream_output(std::ostream& os) const{
+os << "<shp_alloc><this>" << std::hex << this << std::dec << "</this>\n";
 
 /* allocator */
 os << "</alloc_circle_count=" << m_alloc_circle_vec.size() << ">" 
@@ -4273,53 +4286,55 @@ os << "</alloc_loc_grid_node_count=" << m_alloc_loc_grid_node_vec.size() << ">"
     //<< "</loc_grid_node_free_chain_size=" << get_loc_grid_node_free_chain_size() << ">"
     << "\n";
 os << "</alloc_loc_grid_count=" << m_alloc_loc_grid_vec.size() << ">" << "\n";
-os << "</workspace>\n";
+os << "</shp_alloc>\n";
 
 return os;
 }
 
 /* destructor implementation.  Delete all objects. */
-void np02_workspace::alloc_delete_all(){
+void np02_shp_alloc::alloc_delete_all(){
 AA_INCR_CALL_DEPTH();
-for(circle_vec::const_iterator circle_itr = m_alloc_circle_vec.begin();
-    circle_itr != m_alloc_circle_vec.end(); ++circle_itr){
-    AUTO_ASSERT(NULL != *circle_itr);
-    delete *circle_itr;
+while (NULL != m_circle_free_chain) {
+    np02_circle *circle = m_circle_free_chain;
+    m_circle_free_chain = m_circle_free_chain->get_free_chain_next();
+    circle->set_free_chain_next(NULL);
+    delete circle;
     }
 m_alloc_circle_vec.clear();
-m_circle_free_chain = NULL;
 
-for(line_seg_vec::const_iterator line_seg_itr = m_alloc_line_seg_vec.begin();
-    line_seg_itr != m_alloc_line_seg_vec.end(); ++line_seg_itr){
-    AUTO_ASSERT(NULL != *line_seg_itr);
-    delete *line_seg_itr;
+m_line_seg_free_chain = NULL;
+while (NULL != m_line_seg_free_chain) {
+    np02_line_seg *line_seg = m_line_seg_free_chain;
+    m_line_seg_free_chain = m_line_seg_free_chain->get_free_chain_next();
+    line_seg->set_free_chain_next(NULL);
+    delete line_seg;
     }
 m_alloc_line_seg_vec.clear();
-m_line_seg_free_chain = NULL;
 
-for(rect_vec::const_iterator rect_itr = m_alloc_rect_vec.begin();
-    rect_itr != m_alloc_rect_vec.end(); ++rect_itr){
-    AUTO_ASSERT(NULL != *rect_itr);
-    delete *rect_itr;
+while (NULL != m_rect_free_chain) {
+    np02_rect *rect = m_rect_free_chain;
+    m_rect_free_chain = m_rect_free_chain->get_free_chain_next();
+    rect->set_free_chain_next(NULL);
+    delete rect;
     }
 m_alloc_rect_vec.clear();
-m_rect_free_chain = NULL;
 
-for(polygon_vec::const_iterator polygon_itr = m_alloc_polygon_vec.begin();
-    polygon_itr != m_alloc_polygon_vec.end(); ++polygon_itr){
-    AUTO_ASSERT(NULL != *polygon_itr);
-    delete *polygon_itr;
+while (NULL != m_polygon_free_chain) {
+    np02_polygon *polygon = m_polygon_free_chain;
+    m_polygon_free_chain = m_polygon_free_chain->get_free_chain_next();
+    polygon->set_free_chain_next(NULL);
+    delete polygon;
     }
 m_alloc_polygon_vec.clear();
-m_polygon_free_chain = NULL;
 
-for(loc_grid_node_vec::const_iterator lg_itr=m_alloc_loc_grid_node_vec.begin();
-    lg_itr != m_alloc_loc_grid_node_vec.end(); ++lg_itr){
-    AUTO_ASSERT(NULL != *lg_itr);
-    delete *lg_itr;
+while (NULL != m_loc_grid_node_free_chain) {
+    np02_loc_grid_node *loc_grid_node = m_loc_grid_node_free_chain;
+    m_loc_grid_node_free_chain =
+        m_loc_grid_node_free_chain->get_free_chain_next();
+    loc_grid_node->set_free_chain_next(NULL);
+    delete loc_grid_node;
     }
 m_alloc_loc_grid_node_vec.clear();
-m_loc_grid_node_free_chain = NULL;
 
 for(loc_grid_vec::const_iterator loc_grid_itr = m_alloc_loc_grid_vec.begin();
     loc_grid_itr != m_alloc_loc_grid_vec.end(); ++loc_grid_itr){
@@ -4332,7 +4347,7 @@ m_alloc_loc_grid_vec.clear();
 AA_DECR_CALL_DEPTH();
 }
 
-int np02_workspace::verify_data_alloc_circle( char *err_msg,
+int np02_shp_alloc::verify_data_alloc_circle( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 size_t i;
@@ -4342,22 +4357,22 @@ for(i = 0; i < m_alloc_circle_vec.size(); ++i){
     if(NULL == circle){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  m_alloc_circle_vec.at(%i)=NULL\n",
+            "shp_alloc: this=%x  m_alloc_circle_vec.at(%i)=NULL\n",
             this, i ); 
         }
     else{
         if(circle->get_shape_idx() != i){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  circle(%i)=%x->shape_idx=%i\n",
+                "shp_alloc: this=%x  circle(%i)=%x->shape_idx=%i\n",
                 this, i, circle, circle->get_shape_idx() );
             }
-        const np02_workspace *circle_workspace = circle->get_workspace();
-        if((NULL != circle_workspace) && (this != circle_workspace)){
+        const np02_shp_alloc *circle_shp_alloc = circle->get_shp_alloc();
+        if((NULL != circle_shp_alloc) && (this != circle_shp_alloc)){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  != circle(%i)=%x -> workspace=%x\n",
-                this, i, circle, circle_workspace ); 
+                "shp_alloc: this=%x  != circle(%i)=%x -> shp_alloc=%x\n",
+                this, i, circle, circle_shp_alloc ); 
             }
         }
     }
@@ -4369,14 +4384,14 @@ while((NULL != circle) && (i < m_alloc_circle_vec.size())){
     if(m_alloc_circle_vec.size() <= circle_shp_idx){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain circle %i "
+            "shp_alloc: this=%x  free chain circle %i "
             "shp_idx=%i >= vec sz=%i\n", this, i, circle_shp_idx,
             m_alloc_circle_vec.size() ); 
         }
     else if(m_alloc_circle_vec.at(circle_shp_idx) != circle){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain circle %i =%x"
+            "shp_alloc: this=%x  free chain circle %i =%x"
             " != vec.at(shp_idx=%i) = %x\n", this, i, circle, circle_shp_idx,
             m_alloc_circle_vec.at(circle_shp_idx) ); 
         }
@@ -4387,7 +4402,7 @@ while((NULL != circle) && (i < m_alloc_circle_vec.size())){
 return err_cnt;
 }
 
-int np02_workspace::verify_data_alloc_line_seg( char *err_msg,
+int np02_shp_alloc::verify_data_alloc_line_seg( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 size_t i;
@@ -4397,22 +4412,22 @@ for(i = 0; i < m_alloc_line_seg_vec.size(); ++i){
     if(NULL == line_seg){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  m_alloc_line_seg_vec.at(%i)=NULL\n",
+            "shp_alloc: this=%x  m_alloc_line_seg_vec.at(%i)=NULL\n",
             this, i ); 
         }
     else{
         if(line_seg->get_shape_idx() != i){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  line_seg(%i)=%x->shape_idx=%i\n",
+                "shp_alloc: this=%x  line_seg(%i)=%x->shape_idx=%i\n",
                 this, i, line_seg, line_seg->get_shape_idx() );
             }
-        const np02_workspace *line_seg_workspace = line_seg->get_workspace();
-        if((NULL != line_seg_workspace) && (this != line_seg_workspace)){
+        const np02_shp_alloc *line_seg_shp_alloc = line_seg->get_shp_alloc();
+        if((NULL != line_seg_shp_alloc) && (this != line_seg_shp_alloc)){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  != line_seg(%i)=%x -> workspace=%x\n",
-                this, i, line_seg, line_seg_workspace ); 
+                "shp_alloc: this=%x  != line_seg(%i)=%x -> shp_alloc=%x\n",
+                this, i, line_seg, line_seg_shp_alloc ); 
             }
         }
     }
@@ -4424,14 +4439,14 @@ while((NULL != line_seg) && (i < m_alloc_line_seg_vec.size())){
     if(m_alloc_line_seg_vec.size() <= line_seg_shp_idx){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain line_seg %i "
+            "shp_alloc: this=%x  free chain line_seg %i "
             "shp_idx=%i >= vec sz=%i\n", this, i, line_seg_shp_idx,
             m_alloc_line_seg_vec.size() ); 
         }
     else if(m_alloc_line_seg_vec.at(line_seg_shp_idx) != line_seg){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain line_seg %i =%x"
+            "shp_alloc: this=%x  free chain line_seg %i =%x"
             " != vec.at(shp_idx=%i) = %x\n", this, i, line_seg, line_seg_shp_idx,
             m_alloc_line_seg_vec.at(line_seg_shp_idx) ); 
         }
@@ -4442,7 +4457,7 @@ while((NULL != line_seg) && (i < m_alloc_line_seg_vec.size())){
 return err_cnt;
 }
 
-int np02_workspace::verify_data_alloc_rect( char *err_msg,
+int np02_shp_alloc::verify_data_alloc_rect( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 size_t i;
@@ -4452,22 +4467,22 @@ for(i = 0; i < m_alloc_rect_vec.size(); ++i){
     if(NULL == rect){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  m_alloc_rect_vec.at(%i)=NULL\n",
+            "shp_alloc: this=%x  m_alloc_rect_vec.at(%i)=NULL\n",
             this, i ); 
         }
     else{
         if(rect->get_shape_idx() != i){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  rect(%i)=%x->shape_idx=%i\n",
+                "shp_alloc: this=%x  rect(%i)=%x->shape_idx=%i\n",
                 this, i, rect, rect->get_shape_idx() );
             }
-        const np02_workspace *rect_workspace = rect->get_workspace();
-        if((NULL != rect_workspace) && (this != rect_workspace)){
+        const np02_shp_alloc *rect_shp_alloc = rect->get_shp_alloc();
+        if((NULL != rect_shp_alloc) && (this != rect_shp_alloc)){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  != rect(%i)=%x -> workspace=%x\n",
-                this, i, rect, rect_workspace ); 
+                "shp_alloc: this=%x  != rect(%i)=%x -> shp_alloc=%x\n",
+                this, i, rect, rect_shp_alloc ); 
             }
         }
     }
@@ -4479,14 +4494,14 @@ while((NULL != rect) && (i < m_alloc_rect_vec.size())){
     if(m_alloc_rect_vec.size() <= rect_shp_idx){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain rect %i "
+            "shp_alloc: this=%x  free chain rect %i "
             "shp_idx=%i >= vec sz=%i\n", this, i, rect_shp_idx,
             m_alloc_rect_vec.size() ); 
         }
     else if(m_alloc_rect_vec.at(rect_shp_idx) != rect){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain rect %i =%x"
+            "shp_alloc: this=%x  free chain rect %i =%x"
             " != vec.at(shp_idx=%i) = %x\n", this, i, rect, rect_shp_idx,
             m_alloc_rect_vec.at(rect_shp_idx) ); 
         }
@@ -4497,7 +4512,7 @@ while((NULL != rect) && (i < m_alloc_rect_vec.size())){
 return err_cnt;
 }
 
-int np02_workspace::verify_data_alloc_polygon( char *err_msg,
+int np02_shp_alloc::verify_data_alloc_polygon( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 size_t i;
@@ -4507,22 +4522,22 @@ for(i = 0; i < m_alloc_polygon_vec.size(); ++i){
     if(NULL == polygon){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  m_alloc_polygon_vec.at(%i)=NULL\n",
+            "shp_alloc: this=%x  m_alloc_polygon_vec.at(%i)=NULL\n",
             this, i ); 
         }
     else{
         if(polygon->get_shape_idx() != i){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  polygon(%i)=%x->shape_idx=%i\n",
+                "shp_alloc: this=%x  polygon(%i)=%x->shape_idx=%i\n",
                 this, i, polygon, polygon->get_shape_idx() );
             }
-        const np02_workspace *polygon_workspace = polygon->get_workspace();
-        if((NULL != polygon_workspace) && (this != polygon_workspace)){
+        const np02_shp_alloc *polygon_shp_alloc = polygon->get_shp_alloc();
+        if((NULL != polygon_shp_alloc) && (this != polygon_shp_alloc)){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  != polygon(%i)=%x -> workspace=%x\n",
-                this, i, polygon, polygon_workspace ); 
+                "shp_alloc: this=%x  != polygon(%i)=%x -> shp_alloc=%x\n",
+                this, i, polygon, polygon_shp_alloc ); 
             }
         }
     }
@@ -4534,14 +4549,14 @@ while((NULL != polygon) && (i < m_alloc_polygon_vec.size())){
     if(m_alloc_polygon_vec.size() <= polygon_shp_idx){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain polygon %i "
+            "shp_alloc: this=%x  free chain polygon %i "
             "shp_idx=%i >= vec sz=%i\n", this, i, polygon_shp_idx,
             m_alloc_polygon_vec.size() ); 
         }
     else if(m_alloc_polygon_vec.at(polygon_shp_idx) != polygon){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain polygon %i =%x"
+            "shp_alloc: this=%x  free chain polygon %i =%x"
             " != vec.at(shp_idx=%i) = %x\n", this, i, polygon, polygon_shp_idx,
             m_alloc_polygon_vec.at(polygon_shp_idx) ); 
         }
@@ -4552,7 +4567,7 @@ while((NULL != polygon) && (i < m_alloc_polygon_vec.size())){
 return err_cnt;
 }
 
-int np02_workspace::verify_data_alloc_loc_grid_node( char *err_msg,
+int np02_shp_alloc::verify_data_alloc_loc_grid_node( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 size_t i;
@@ -4562,22 +4577,22 @@ for(i = 0; i < m_alloc_loc_grid_node_vec.size(); ++i){
     if(NULL == lg_node){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  m_alloc_loc_grid_node_vec.at(%i)=NULL\n",
+            "shp_alloc: this=%x  m_alloc_loc_grid_node_vec.at(%i)=NULL\n",
             this, i ); 
         }
     else{
         if(lg_node->get_alloc_idx() != i){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  lg_node(%i)=%x->alloc_idx=%i\n",
+                "shp_alloc: this=%x  lg_node(%i)=%x->alloc_idx=%i\n",
                 this, i, lg_node, lg_node->get_alloc_idx() );
             }
-        const np02_workspace *lg_node_workspace = lg_node->get_workspace();
-        if((NULL != lg_node_workspace) && (this != lg_node_workspace)){
+        const np02_shp_alloc *lg_node_shp_alloc = lg_node->get_shp_alloc();
+        if((NULL != lg_node_shp_alloc) && (this != lg_node_shp_alloc)){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  != lg_node(%i)=%x -> workspace=%x\n",
-                this, i, lg_node, lg_node_workspace ); 
+                "shp_alloc: this=%x  != lg_node(%i)=%x -> shp_alloc=%x\n",
+                this, i, lg_node, lg_node_shp_alloc ); 
             }
         }
     }
@@ -4589,14 +4604,14 @@ while((NULL != lg_node) && (i < m_alloc_loc_grid_node_vec.size())){
     if(m_alloc_loc_grid_node_vec.size() <= alloc_idx){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain lg_node %i "
+            "shp_alloc: this=%x  free chain lg_node %i "
             "alloc_idx=%i >= vec sz=%i\n", this, i, alloc_idx,
             m_alloc_loc_grid_node_vec.size() ); 
         }
     else if(m_alloc_loc_grid_node_vec.at(alloc_idx) != lg_node){
         ++err_cnt;
         np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-            "workspace: this=%x  free chain lg_node %i =%x"
+            "shp_alloc: this=%x  free chain lg_node %i =%x"
             " != vec.at(alloc_idx=%i) = %x\n", this, i, lg_node, alloc_idx,
             m_alloc_loc_grid_node_vec.at(alloc_idx) ); 
         }
@@ -4607,7 +4622,7 @@ while((NULL != lg_node) && (i < m_alloc_loc_grid_node_vec.size())){
 return err_cnt;
 }
 
-int np02_workspace::verify_data_alloc_loc_grid( char *err_msg,
+int np02_shp_alloc::verify_data_alloc_loc_grid( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 size_t i;
@@ -4618,15 +4633,15 @@ for(i = 0; i < m_alloc_loc_grid_vec.size(); ++i){
         if(loc_grid->get_alloc_idx() != i){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  loc_grid(%i)=%x->alloc_idx=%i\n",
+                "shp_alloc: this=%x  loc_grid(%i)=%x->alloc_idx=%i\n",
                 this, i, loc_grid, loc_grid->get_alloc_idx() );
             }
-        const np02_workspace *loc_grid_workspace = loc_grid->get_workspace();
-        if((NULL != loc_grid_workspace) && (this != loc_grid_workspace)){
+        const np02_shp_alloc *loc_grid_shp_alloc = loc_grid->get_shp_alloc();
+        if(this != loc_grid_shp_alloc){
             ++err_cnt;
             np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
-                "workspace: this=%x  != loc_grid(%i)=%x -> workspace=%x\n",
-                this, i, loc_grid, loc_grid_workspace ); 
+                "shp_alloc: this=%x  != loc_grid(%i)=%x -> shp_alloc=%x\n",
+                this, i, loc_grid, loc_grid_shp_alloc ); 
             }
         }
     }
@@ -4688,7 +4703,7 @@ std::cout << "elapsed_time=" << (done_time-start_time) << " s\n";
 return error_code;
 }
 
-void np02_shape_test::make_rand_shapes( np02_workspace *wksp,
+void np02_shape_test::make_rand_shapes( np02_shp_alloc *shp_alloc,
     const int& ww, const int& hh,  const double& basic_length,
     std::vector<np02_shape *> *shapes,
     std::vector<np02_bmp_color> *colors ){
@@ -4698,7 +4713,7 @@ for(int i = 0; i < ww; ++i){
         /* create random shape & color */
         const double y_ctr = (static_cast<double>(j)+0.5) * basic_length;
         np02_bmp_color color(0,0,0,false);
-        np02_shape *shape = make_rand_shape( wksp,
+        np02_shape *shape = make_rand_shape( shp_alloc,
             np02_xy(x_ctr, y_ctr), basic_length, &color );
         shapes->push_back(shape);
         colors->push_back(color);
@@ -4707,7 +4722,7 @@ for(int i = 0; i < ww; ++i){
 }
 
 
-np02_shape *np02_shape_test::make_rand_shape( np02_workspace *wksp,
+np02_shape *np02_shape_test::make_rand_shape( np02_shp_alloc *shp_alloc,
     const np02_xy& shp_ctr, const double& basic_length,
     np02_bmp_color *color ){
 np02_shape *shape = NULL;
@@ -4729,8 +4744,8 @@ switch(get_rand_int()%9){
     case 0:
     case 3:
         {
-        /* TODO: allocate from workspace if not NULL */
-        np02_circle *circle = new np02_circle();
+        np02_circle *circle = (NULL == shp_alloc) ? 
+            new np02_circle() : shp_alloc->alloc_circle();
         circle->init(np02_xy(shp_ctr.get_x()+x0,shp_ctr.get_y()+y0),r);
         shape = circle;
 
@@ -4749,8 +4764,8 @@ switch(get_rand_int()%9){
     case 6:
     case 7:
         {
-        /* TODO: allocate from workspace if not NULL */
-        np02_rect *rect = new np02_rect();
+        np02_rect *rect = (NULL == shp_alloc) ? 
+            new np02_rect() : shp_alloc->alloc_rect();
         rect->init(np02_xy(shp_ctr.get_x()+x0, shp_ctr.get_y()+y0),
             fabs(x1), fabs(y1), rot_deg);
         shape = rect;
@@ -4768,8 +4783,8 @@ switch(get_rand_int()%9){
     case 5:
     case 8:
         {
-        /* TODO: allocate from workspace if not NULL */
-        np02_line_seg *line_seg = new np02_line_seg();
+        np02_line_seg *line_seg = (NULL == shp_alloc) ? 
+            new np02_line_seg() : shp_alloc->alloc_line_seg();
         line_seg->init(np02_xy(shp_ctr.get_x()+x0,shp_ctr.get_y()+y0), 
             np02_xy(shp_ctr.get_x()+x1,shp_ctr.get_y()+y1), r);
         shape = line_seg;
@@ -4791,23 +4806,33 @@ if(NULL != color){ *color = clr; }
 return shape;
 }
 
-void np02_shape_test::free_shapes( np02_workspace *wksp,
+void np02_shape_test::free_shapes( np02_shp_alloc *shp_alloc,
     std::vector<np02_shape *> *shapes ){
+int e = 0;
+if(NULL != shp_alloc){
+    e = shp_alloc->verify_data(AA_ERR_BUF(),
+        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    AA_ALWAYS_ASSERT(0 == e);
+    }
+
 if (NULL != shapes){
     std::vector<np02_shape *>::const_iterator shp_itr = shapes->begin();
     for(; shp_itr != shapes->end(); ++shp_itr){
         np02_shape *shape = *shp_itr;
-        if(NULL == wksp){
+        if(NULL == shp_alloc){
             delete shape;
             }
         else{
-            AA_ALWAYS_ASSERT(false);
-            /* TODO: implement 
-            wksp->free_shape(shape);
-            */
+            shp_alloc->free_shape(shape);
             }
         }
     shapes->clear();
+    }
+
+if(NULL != shp_alloc){
+    e = shp_alloc->verify_data(AA_ERR_BUF(),
+        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    AA_ALWAYS_ASSERT(0 == e);
     }
 }
 
@@ -4997,6 +5022,7 @@ int err_cnt = 0;
 size_t i,j;
 std::vector<np02_shape *> shape_vec;
 std::vector<np02_bmp_color> color_vec;
+np02_shp_alloc *shp_alloc = NULL;
 
 advance_rand();
 int ww = 3 + (get_rand_int() % 6);
@@ -5014,7 +5040,14 @@ switch(get_rand_int() % 7){
     case 5:  basic_length = 1000.0; break;
     case 6:  basic_length = 10000.0; break;
     }
-make_rand_shapes( NULL, ww, hh, basic_length, &shape_vec, &color_vec );
+advance_rand();
+if(50 > (get_rand_int() % 100)){
+    shp_alloc = new np02_shp_alloc();
+    e = shp_alloc->verify_data(AA_ERR_BUF(),
+        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    AA_ALWAYS_ASSERT(0 == e);
+    }
+make_rand_shapes( shp_alloc, ww, hh, basic_length, &shape_vec, &color_vec );
 
 bool should_write_file = false;
 if( ( m_iteration < 10 ) ||
@@ -5123,7 +5156,8 @@ if(should_write_file){
             ( text_pos.get_x() - xy_min.get_x() ) * pixel_num;
         const double jj_text =
             ( text_pos.get_y() - xy_min.get_y() ) * pixel_num;
-        std::cout << "shape error  itr=" << m_iteration
+        std::cout << __FILE__ << "[" << __LINE__ << "] "
+            << "shape error  itr=" << m_iteration
             << "  drawing=" << bmp_file_name 
             << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
             << "  pixel(" << ii_text << "," << jj_text << ")\n";
@@ -5139,7 +5173,8 @@ if(should_write_file){
     bmp_file.write_file( &(bmp_file_name[0]) );
     }
 
-free_shapes( NULL, &shape_vec );
+free_shapes( shp_alloc, &shape_vec );
+if( NULL != shp_alloc ){ delete shp_alloc; }
 
 AA_DECR_CALL_DEPTH();
 
@@ -5176,6 +5211,7 @@ int local_err_cnt = 0;
 size_t i,j;
 std::vector<np02_shape *> shape_vec;
 std::vector<np02_bmp_color> color_vec;
+np02_shp_alloc *shp_alloc = NULL;
 
 /* make random shapes */
 advance_rand();
@@ -5194,7 +5230,13 @@ switch(get_rand_int() % 7){
     case 5:  basic_length = 1000.0; break;
     case 6:  basic_length = 10000.0; break;
     }
-make_rand_shapes( NULL, ww, hh, basic_length, &shape_vec, &color_vec );
+if(50 > (get_rand_int() % 100)){
+    shp_alloc = new np02_shp_alloc();
+    e = shp_alloc->verify_data(AA_ERR_BUF(),
+        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    AA_ALWAYS_ASSERT(0 == e);
+    }
+make_rand_shapes( shp_alloc, ww, hh, basic_length, &shape_vec, &color_vec );
 const np02_xy xy_min(0.0,0.0);
 
 bool should_write_file = false;
@@ -5235,9 +5277,32 @@ advance_rand();
 loc_grid_dim.set_y_min(get_rand_dbl(0.0, basic_length));
 loc_grid_dim.set_sq_size(sq_sz);
 
-np02_loc_grid loc_grid;
-loc_grid.set_extra_search_d(extra_search_d);
-loc_grid.init_loc_grid(loc_grid_dim);
+np02_loc_grid loc_grid_local;
+np02_loc_grid *loc_grid;
+
+if( NULL != shp_alloc ){
+    loc_grid = shp_alloc->alloc_loc_grid();
+    //std::cout << "loc_grid = shp_alloc->alloc_loc_grid()" << "\n";
+    }
+else if(50 > (get_rand_int() % 100)){
+    loc_grid = new np02_loc_grid();
+    //std::cout << "loc_grid = new np02_loc_grid()" << "\n";
+    }
+else{
+    loc_grid = &loc_grid_local;
+    //std::cout << "loc_grid = &loc_grid_local" << "\n";
+    }
+
+e = loc_grid->verify_data(AA_ERR_BUF(),
+    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+AA_ALWAYS_ASSERT(0 == e);
+
+loc_grid->set_extra_search_d(extra_search_d);
+loc_grid->init_loc_grid(loc_grid_dim);
+
+e = loc_grid->verify_data(AA_ERR_BUF(),
+    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+AA_ALWAYS_ASSERT(0 == e);
 
 /* Put shapes in locator grid */
 bool err_xy_found = false;
@@ -5257,7 +5322,7 @@ for( i = 0; i < shape_vec.size(); ++i){
         shape->get_bb(&err_xy_a, &err_xy_b );
         }
 
-    loc_grid.insert_shape_in_loc_grid(shape);
+    loc_grid->insert_shape_in_loc_grid(shape);
     
     e = shape->verify_data(AA_ERR_BUF(),
         AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
@@ -5270,7 +5335,7 @@ for( i = 0; i < shape_vec.size(); ++i){
         }
     }
 
-e = loc_grid.verify_data(AA_ERR_BUF(),
+e = loc_grid->verify_data(AA_ERR_BUF(),
     AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
 AA_ALWAYS_ASSERT(0 == e);
 err_cnt += e;
@@ -5285,7 +5350,7 @@ From each shape,
 np02_loc_grid::shape_vec local_shapes;
 for( i = 0; i < shape_vec.size(); ++i){
     const np02_shape *shape_i = shape_vec.at(i);
-    loc_grid.get_shapes_near_shape(shape_i, &local_shapes);
+    loc_grid->get_shapes_near_shape(shape_i, &local_shapes);
     std::sort(local_shapes.begin(), local_shapes.end());
     for( j = 0; j < shape_vec.size(); ++j){
         if( i != j ){
@@ -5328,7 +5393,7 @@ if(should_write_file){
             color_vec.at(i), &bmp_file);
         }
 
-    loc_grid.write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
+    loc_grid->write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
         &bmp_file);
 
     if(err_xy_found){
@@ -5341,7 +5406,8 @@ if(should_write_file){
             ( text_pos.get_x() - xy_min.get_x() ) * pixel_num;
         const double jj_text =
             ( text_pos.get_y() - xy_min.get_y() ) * pixel_num;
-        std::cout << "shape error  itr=" << m_iteration
+        std::cout << __FILE__ << "[" << __LINE__ << "] "
+            << "shape error  itr=" << m_iteration
             << "  drawing=" << bmp_file_name 
             << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
             << "  pixel(" << ii_text << "," << jj_text << ")\n";
@@ -5371,7 +5437,7 @@ for( i = 0; i < shape_vec.size(); ++i){
         AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
     AA_ALWAYS_ASSERT(0 == e);
     local_err_cnt += e;
-    e = (shape_i->get_loc_grid() == &loc_grid)? 0 : 1;
+    e = (shape_i->get_loc_grid() == loc_grid)? 0 : 1;
     AA_ALWAYS_ASSERT(0 == e);
     local_err_cnt += e;
 
@@ -5410,7 +5476,7 @@ for( i = 0; i < shape_vec.size(); ++i){
         case 8:
             {
             /* rotate, explicitly update locator grid */
-            loc_grid.remove_shape_from_loc_grid(shape_i);
+            loc_grid->remove_shape_from_loc_grid(shape_i);
 
             e = shape_i->verify_data(AA_ERR_BUF(),
                 AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
@@ -5428,7 +5494,7 @@ for( i = 0; i < shape_vec.size(); ++i){
             AA_ALWAYS_ASSERT(0 == e);
             local_err_cnt += e;
 
-            loc_grid.insert_shape_in_loc_grid(shape_i);
+            loc_grid->insert_shape_in_loc_grid(shape_i);
             }
             break;
         case 9:
@@ -5436,7 +5502,7 @@ for( i = 0; i < shape_vec.size(); ++i){
         case 11:
             {
             /* translate, explicitly update locator grid */
-            loc_grid.remove_shape_from_loc_grid(shape_i);
+            loc_grid->remove_shape_from_loc_grid(shape_i);
 
             e = shape_i->verify_data(AA_ERR_BUF(),
                 AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
@@ -5454,7 +5520,7 @@ for( i = 0; i < shape_vec.size(); ++i){
             AA_ALWAYS_ASSERT(0 == e);
             local_err_cnt += e;
 
-            loc_grid.insert_shape_in_loc_grid(shape_i);
+            loc_grid->insert_shape_in_loc_grid(shape_i);
             }
             break;
         }
@@ -5463,7 +5529,7 @@ for( i = 0; i < shape_vec.size(); ++i){
         AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
     AA_ALWAYS_ASSERT(0 == e);
     local_err_cnt += e;
-    e = (shape_i->get_loc_grid() == &loc_grid)? 0 : 1;
+    e = (shape_i->get_loc_grid() == loc_grid)? 0 : 1;
     AA_ALWAYS_ASSERT(0 == e);
     local_err_cnt += e;
 
@@ -5484,7 +5550,7 @@ From each shape,
 */
 for( i = 0; i < shape_vec.size(); ++i){
     const np02_shape *shape_i = shape_vec.at(i);
-    loc_grid.get_shapes_near_shape(shape_i, &local_shapes);
+    loc_grid->get_shapes_near_shape(shape_i, &local_shapes);
     std::sort(local_shapes.begin(), local_shapes.end());
     for( j = 0; j < shape_vec.size(); ++j){
         if( i != j ){
@@ -5528,7 +5594,7 @@ if(should_write_file){
             color_vec.at(i), &bmp_file);
         }
 
-    loc_grid.write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
+    loc_grid->write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
         &bmp_file);
 
     if(err_xy_found){
@@ -5541,7 +5607,8 @@ if(should_write_file){
             ( text_pos.get_x() - xy_min.get_x() ) * pixel_num;
         const double jj_text =
             ( text_pos.get_y() - xy_min.get_y() ) * pixel_num;
-        std::cout << "shape error  itr=" << m_iteration
+        std::cout << __FILE__ << "[" << __LINE__ << "] "
+            << "shape error  itr=" << m_iteration
             << "  drawing=" << bmp_file_name 
             << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
             << "  pixel(" << ii_text << "," << jj_text << ")\n";
@@ -5558,7 +5625,20 @@ if(should_write_file){
     bmp_file.write_file( &(bmp_file_name[0]) );
     }
 
-free_shapes( NULL, &shape_vec );
+e = loc_grid->verify_data(AA_ERR_BUF(),
+    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+AA_ALWAYS_ASSERT(0 == e);
+err_cnt += e;
+
+free_shapes( shp_alloc, &shape_vec );
+
+e = loc_grid->verify_data(AA_ERR_BUF(),
+    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+AA_ALWAYS_ASSERT(0 == e);
+err_cnt += e;
+
+if( NULL != shp_alloc ){ delete shp_alloc; }
+loc_grid = NULL;
 
 AA_DECR_CALL_DEPTH();
 

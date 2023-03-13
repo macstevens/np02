@@ -64,7 +64,7 @@ namespace np02 {
 
 
 const char *np02_test_main::m_prog_name = "NP02_TEST";
-const char *np02_test_main::m_version_str = "0.0.1" 
+const char *np02_test_main::m_version_str = "0.0.2" 
      " " __DATE__ " " __TIME__
     ;
 
