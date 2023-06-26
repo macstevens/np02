@@ -103,6 +103,7 @@ else{
 class np02_xy;
 class np02_shape;
 class np02_circle;
+class np02_arc;
 class np02_line_seg;
 class np02_rect;
 class np02_polygon;
@@ -147,6 +148,13 @@ public:
     const double& get_y() const { return m_y; }
     void set_x(const double& x){m_x = x;}
     void set_y(const double& y){m_y = y;}
+    void set_xy(const double& x, const double& y){m_x = x; m_y = y;}
+    double get_len_sq() const{
+        const double len_sq = ( m_x * m_x ) + ( m_y * m_y );
+        return len_sq; }
+    double get_len() const{
+        const double len = sqrt( get_len_sq() );
+        return len; }
     double get_dsq_to(const np02_xy& xy) const{
         const double dx = m_x - xy.get_x();
         const double dy = m_y - xy.get_y();
@@ -173,11 +181,12 @@ public:
     double dot(const np02_xy& xy) const{
         const double d = (m_x * xy.get_x()) + (m_y * xy.get_y());
         return d; }
+    uint64_t hash( const uint64_t& h_in=0 ) const;
 };
 
 typedef std::vector<np02_xy> np02_xy_vec;
-typedef np02_xy_vec::const_iterator np02_xy_citr;
-typedef np02_xy_vec::iterator np02_xy_itr;
+typedef np02_xy_vec::const_iterator np02_xy_vec_citr;
+typedef np02_xy_vec::iterator np02_xy_vec_itr;
 
 typedef uint32_t shape_idx_type;
 typedef uint64_t shp_owner_idx_type;
@@ -188,9 +197,92 @@ typedef uint64_t lyr_idx_type;
 #define NP02_LYR_INVALID_IDX (std::numeric_limits<lyr_idx_type>::max())
 
 
+
+enum np02_answer_quality{
+    NP02_ANSWER_QUALITY_SMALL_ERROR = 0,
+    NP02_ANSWER_QUALITY_MEDIUM_ERROR = 1,
+    NP02_ANSWER_QUALITY_LARGE_ERROR = 2,
+    NP02_ANSWER_QUALITY_COUNT
+};
+
+/* helper struct for near point calculation*/
+struct np02_dist_from_xy_xy{
+public:
+    np02_answer_quality m_answer_quality;
+    double m_distance_from;
+    bool m_near_xy_defined;
+    bool m_other_near_xy_defined;
+    np02_xy m_near_xy;
+    np02_xy m_other_near_xy;
+public:
+    np02_dist_from_xy_xy(): m_answer_quality(NP02_ANSWER_QUALITY_COUNT),
+        m_distance_from(0.0), m_near_xy_defined(false),
+        m_other_near_xy_defined(false), m_near_xy(0.0,0.0),
+        m_other_near_xy(0.0,0.0){}
+    np02_dist_from_xy_xy(const np02_dist_from_xy_xy& master): 
+        m_answer_quality(master.m_answer_quality),
+        m_distance_from(master.m_distance_from), 
+        m_near_xy_defined(master.m_near_xy_defined), 
+        m_other_near_xy_defined(master.m_other_near_xy_defined),
+        m_near_xy(master.m_near_xy), 
+        m_other_near_xy(master.m_other_near_xy){}
+   ~np02_dist_from_xy_xy(){}
+    np02_dist_from_xy_xy& operator=(const np02_dist_from_xy_xy& master){
+        m_answer_quality = master.m_answer_quality;
+        m_distance_from = master.m_distance_from;
+        m_near_xy_defined = master.m_near_xy_defined; 
+        m_other_near_xy_defined = master.m_other_near_xy_defined;
+        m_near_xy = master.m_near_xy; 
+        m_other_near_xy = master.m_other_near_xy;
+        return *this;}
+        /* result < 0  ==> this is a better (more correct) result than other 
+           result > 0  ==> this is a worse (less correct)result than other */
+    int compare(const np02_dist_from_xy_xy& other) const{
+        int result = static_cast<int>(m_answer_quality) -
+            static_cast<int>(other.m_answer_quality);
+        if(0 == result){
+            if( m_distance_from < other.m_distance_from){ result = -1; }
+            else if( other.m_distance_from < m_distance_from){ result = 1; }  }
+        if(0 == result){ result = static_cast<int>(other.m_near_xy_defined) -
+            static_cast<int>(m_near_xy_defined); }
+        if(0 == result){ 
+            result = static_cast<int>(other.m_other_near_xy_defined) -
+            static_cast<int>(m_other_near_xy_defined); }
+        if(0 == result){
+            if( m_near_xy < other.m_near_xy){ result = -1; }
+            else if( other.m_near_xy < m_near_xy){ result = 1; }  }
+        if(0 == result){
+            if( m_other_near_xy < other.m_other_near_xy){ result = -1; }
+            else if( other.m_other_near_xy < m_other_near_xy){ result = 1; }  }
+        return result; }
+    bool operator==(const np02_dist_from_xy_xy& other) const{
+        const int compare_result = compare(other);
+        return (0 == compare_result) ? true : false; }
+    bool operator<(const np02_dist_from_xy_xy& other) const{
+        const int compare_result = compare(other);
+        return (compare_result < 0) ? true : false; }
+    void swap_xy(){
+        const bool temp_defined = m_near_xy_defined;
+        m_near_xy_defined = m_other_near_xy_defined;
+        m_other_near_xy_defined = temp_defined;
+        const np02_xy temp_xy = m_near_xy;
+        m_near_xy = m_other_near_xy;
+        m_other_near_xy = temp_xy; }
+};
+
+enum np02_rect_pt_idx{
+    NP02_RECT_PT_IDX_P00 = 0,
+    NP02_RECT_PT_IDX_P01 = 1,
+    NP02_RECT_PT_IDX_P10 = 2,
+    NP02_RECT_PT_IDX_P11 = 3,
+    NP02_RECT_PT_IDX_CTR = 4,
+    NP02_RECT_PT_IDX_COUNT
+};
+
 enum np02_shape_type{
     NP02_SHAPE_TYPE_SHAPE,
     NP02_SHAPE_TYPE_CIRCLE,
+    NP02_SHAPE_TYPE_ARC,
     NP02_SHAPE_TYPE_LINE_SEG,
     NP02_SHAPE_TYPE_RECT,
     NP02_SHAPE_TYPE_POLYGON,
@@ -198,6 +290,17 @@ enum np02_shape_type{
 };
 
 class np02_shape{
+public:
+    static const double m_pi;
+    static const double m_degrees_per_radian; 
+    static const double m_little_ratio;  
+    static const double m_little_ratio_sq; 
+    static const double m_small_ratio;
+    static const double m_small_ratio_sq;
+    static const double m_tiny_ratio;
+    static const double m_teensy_ratio;
+    static const double m_teensy_ratio_sq;
+    static const double m_googol;
 public:
     typedef std::pair<np02_shape_type,uint32_t> type_idx_pair;
     typedef std::pair<type_idx_pair,np02_shape*> type_idx_shp;
@@ -213,6 +316,10 @@ private:
 protected:
     void set_shape_type(const np02_shape_type& shape_type){
         m_shape_type = shape_type; }
+    double get_small_distance() const;
+public:
+    static void cos_sin_rot_deg( const double& rot_deg,
+        double *cos_rot, double *sin_rot );
 public:
     np02_shape();
     virtual void destruct();
@@ -244,6 +351,8 @@ public:
         np02_xy *other_near_xy=NULL) const=0;
     virtual double get_distance_from_circle(const np02_circle *c,
         np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const=0;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const=0;
     virtual double get_distance_from_line_seg(const np02_line_seg *n,
         np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const=0;
     virtual double get_distance_from_rect(const np02_rect *r,
@@ -261,6 +370,7 @@ public:
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg) = 0;
 
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     static int verify_distance_from_shape_result(
@@ -268,6 +378,24 @@ public:
         const np02_shape *shape_b, const np02_xy& xy_near_a,
         const np02_xy& xy_near_b, const double& distance_from,
         char *err_msg, const size_t err_msg_capacity, size_t *err_msg_pos );
+    /* bounding box overlap 
+           AAAAAAAAAA                             AAAAAAAAAA        
+           min    max                             min    max        
+                                                     
+                   BBBBBBBBBB              BBBBBBBBBB
+                   min    max              min    max
+    */
+    static bool is_bb_overlap(
+        const np02_xy& bb_a_xy_min, const np02_xy& bb_a_xy_max,
+        const np02_xy& bb_b_xy_min, const np02_xy& bb_b_xy_max ){
+        const bool bb_overlap = ((bb_a_xy_min.get_x() <= bb_b_xy_max.get_x())&&
+                                 (bb_b_xy_min.get_x() <= bb_a_xy_max.get_x())&&
+                                 (bb_a_xy_min.get_y() <= bb_b_xy_max.get_y())&&
+                                 (bb_b_xy_min.get_y() <= bb_a_xy_max.get_y()));
+        return bb_overlap; }
+    static double get_bb_sep_dist_manhattan(
+        const np02_xy& bb_a_xy_min, const np02_xy& bb_a_xy_max,
+        const np02_xy& bb_b_xy_min, const np02_xy& bb_b_xy_max );
     virtual std::ostream& ostream_output(std::ostream& os) const;
     virtual void write_bmp_file(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
@@ -275,6 +403,13 @@ public:
     virtual void write_dxf_file(const std::string& layer,
         const uint8_t& color, np02_dxf_file *dxf_file) const;
 };
+
+typedef std::vector<np02_shape *> np02_shape_vec;
+typedef np02_shape_vec::iterator np02_shape_vec_itr;
+typedef np02_shape_vec::const_iterator np02_shape_vec_citr;
+
+uint64_t np02_shape_vec_hash( const np02_shape_vec& v, 
+    const uint64_t& h_in = 0 );
 
 
 class np02_circle: public np02_shape{
@@ -306,6 +441,8 @@ public:
         np02_xy *other_near_xy=NULL) const;
     virtual double get_distance_from_circle(const np02_circle *c,
         np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const;
     virtual double get_distance_from_line_seg(const np02_line_seg *n,
         np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const;
     virtual double get_distance_from_rect(const np02_rect *r,
@@ -318,6 +455,7 @@ public:
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
 
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
@@ -326,7 +464,195 @@ public:
         np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
         const uint8_t& color, np02_dxf_file *dxf_file) const;
+
+    size_t circle_circle_intersect(const np02_circle *c,
+        np02_xy *xy_intsct_0=NULL, np02_xy *xy_intsct_1=NULL) const;
+    static size_t circle_circle_intsct(const np02_xy& ctr_a,
+        const double& r_a, const np02_xy& ctr_b, const double& r_b,
+        np02_xy *xy_intsct_0=NULL, np02_xy *xy_intsct_1=NULL);
+    static int verify_data_circle_circle_intsct_result( const np02_xy& ctr_a,
+        const double& r_a, const np02_xy& ctr_b, const double& r_b,
+        np02_xy *xy_intsct_0, np02_xy *xy_intsct_1, const size_t& intsct_count,
+        char *err_msg, const size_t err_msg_capacity, size_t *err_msg_pos );
 };
+
+
+/*
+                 \fwd0
+                   \
+                     \
+                ***    \
+           *           * \
+        *                 +P0
+      *                  .        direction = CCW
+     +P1               .
+    /     .           .start_angle
+   /  end_angle.    .
+  /               +ctr
+fwd1
+
+
+
+*/
+class np02_arc: public np02_shape{
+public:
+    struct init_params{
+       np02_xy m_ctr;
+       double m_radius; 
+       double m_start_angle_deg; 
+       double m_end_angle_deg;
+       double m_width;
+    };
+    struct init3pt_params{
+       np02_xy m_pa;
+       np02_xy m_pb;
+       np02_xy m_pc;
+       double m_width;
+       double m_max_radius;
+    };
+    struct init3pt_aux_params{
+       np02_xy m_p_0;
+       np02_xy m_p_1;
+       bool m_is_straight;
+    };
+private:
+    /* init data */
+    np02_xy m_ctr;
+    double m_radius;
+    double m_start_angle_deg;
+    double m_end_angle_deg;
+    double m_width;
+
+    /* derived values */
+    np02_xy m_p_0, m_p_1;
+    np02_xy m_fwd_0, m_fwd_1;
+    double m_fwd_dot_0, m_fwd_dot_1;
+    np02_xy m_bb_xy_min, m_bb_xy_max;
+public:
+    np02_arc();
+    virtual ~np02_arc();
+    void set_free_chain_next(np02_arc *n){
+        set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
+    np02_arc *get_free_chain_next() const{ return
+        reinterpret_cast<np02_arc *>(get_head_loc_grid_node()); }
+    void init(const init_params& prm);
+    void init_force_p01(const init_params& prm, 
+        const init3pt_aux_params& aux_prm );
+    static void init3pt_to_init_params(const init3pt_params& init3pt_prm,
+        init_params *init_prm, init3pt_aux_params *aux_params ); 
+    const np02_xy& get_ctr() const{return m_ctr;}
+    const double& get_radius() const{return m_radius;}
+    const double& get_start_angle_deg() const{return m_start_angle_deg;}
+    const double& get_end_angle_deg() const{return m_end_angle_deg;}
+    const double& get_width() const{return m_width;}
+    const np02_xy& get_p_0() const{return m_p_0;}
+    const np02_xy& get_p_1() const{return m_p_1;}
+    const np02_xy& get_fwd_0() const{return m_fwd_0;}
+    const np02_xy& get_fwd_1() const{return m_fwd_1;}
+    const double& get_fwd_dot_0() const{return m_fwd_dot_0;}
+    const double& get_fwd_dot_1() const{return m_fwd_dot_1;}
+    bool is_less_than_half_circle() const{
+        const double angle_range = m_end_angle_deg-m_start_angle_deg; 
+        return ( angle_range < 180.0 ) ? true : false; }
+    /* result > 0 => p is inside zone 0 */
+    double distance_in_zone_0(const np02_xy& p) const{
+        const double fwd_0_dot_p = m_fwd_0.dot(p);
+        const double d_in_z_0 = m_fwd_dot_0 - fwd_0_dot_p;
+        return d_in_z_0; }
+    /* result > 0 => p is inside zone 1 */
+    double distance_in_zone_1(const np02_xy& p) const{
+        const double fwd_1_dot_p = m_fwd_1.dot(p);
+        const double d_in_z_1 = fwd_1_dot_p - m_fwd_dot_1;
+        return d_in_z_1; }
+    bool is_in_zone_0(const np02_xy& p) const{
+        const double fwd_0_dot_p = m_fwd_0.dot(p);
+        return ( fwd_0_dot_p < m_fwd_dot_0 ) ? true : false; }
+    bool is_in_zone_1(const np02_xy& p) const{
+        const double fwd_1_dot_p = m_fwd_1.dot(p);
+        return ( fwd_1_dot_p > m_fwd_dot_1 ) ? true : false; }
+    bool is_in_perp_zone(const np02_xy& p) const;
+    double distance_in_perp_zone(const np02_xy& p) const;
+    virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const;
+    virtual void get_loc_grid_indices_for_init(
+        const np02_loc_grid_dim& loc_grid_dim,
+        const double& extra_search_d, np02_uint16_pair_vec *index_vec)
+        const;
+    virtual double get_distance_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL) const;
+    virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
+        const np02_xy& xy_b, np02_xy *near_xy=NULL,
+        np02_xy *other_near_xy=NULL) const;
+    virtual double get_distance_from_circle(const np02_circle *c,
+        np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const;
+    virtual double get_distance_from_line_seg(const np02_line_seg *n,
+        np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const;
+    virtual double get_distance_from_rect(const np02_rect *r,
+        np02_xy *near_xy=NULL, np02_xy *rect_near_xy=NULL) const;
+    virtual double get_distance_from_polygon(const np02_polygon *p,
+        np02_xy *near_xy=NULL, np02_xy *polygon_near_xy=NULL)const;
+    virtual double get_distance_from_shape(const np02_shape *s,
+        np02_xy *near_xy=NULL, np02_xy *other_near_xy=NULL) const;
+    virtual void translate_no_loc_grid(const np02_xy& dxy);
+    virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
+        const double& rot_deg);
+
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
+    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+    virtual std::ostream& ostream_output(std::ostream& os) const;
+    virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_dxf_file(const std::string& layer,
+        const uint8_t& color, np02_dxf_file *dxf_file) const;
+
+    size_t arc_circle_centerline_intersect(const np02_circle *c,
+        np02_xy *xy_intsct_0=NULL, np02_xy *xy_intsct_1=NULL) const;
+    int verify_data_arc_circle_centerline_intersect_result(
+        const np02_circle *c, np02_xy *xy_intsct_0, np02_xy *xy_intsct_1,
+        const size_t& intsct_count, char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    size_t arc_arc_centerline_intersect(const np02_arc *b,
+        np02_xy *xy_intsct_0=NULL, np02_xy *xy_intsct_1=NULL) const;
+    int verify_data_arc_arc_centerline_intersect_result( const np02_arc *a,
+        np02_xy *xy_intsct_0, np02_xy *xy_intsct_1, const size_t& intsct_count,
+        char *err_msg, const size_t err_msg_capacity,
+        size_t *err_msg_pos ) const;
+    size_t arc_seg_centerline_intersect(const np02_line_seg *n,
+        np02_xy *xy_intsct_0=NULL, np02_xy *xy_intsct_1=NULL) const;
+    int verify_data_arc_seg_centerline_intersect_result(
+        const np02_line_seg *n, np02_xy *xy_intsct_0, np02_xy *xy_intsct_1,
+        const size_t& intsct_count, char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+private:
+    void init_bb();
+    double get_distance_from_xy_hw(const np02_xy& xy,
+        const double& hw, np02_xy *near_xy=NULL) const;
+    void get_distance_from_arc_zone_0(const np02_arc *a,
+        np02_dist_from_xy_xy *result) const;
+    void get_distance_from_arc_zone_1(const np02_arc *a,
+        np02_dist_from_xy_xy *result) const;
+    void get_distance_from_arc_far_perp_zone(const np02_arc *a,
+        np02_dist_from_xy_xy *result) const;
+    void get_distance_from_arc_centerline_intersect(const np02_arc *a,
+        np02_dist_from_xy_xy *result_0, np02_dist_from_xy_xy *result_1) const;
+    void get_distance_from_shape_zone_01(const np02_shape *shp,
+        const bool& is_from_p0, np02_dist_from_xy_xy *result) const;
+    void get_distance_from_shape_far_perp_zone(const np02_shape *shp,
+        np02_dist_from_xy_xy *result) const;
+    void get_distance_from_line_seg_far_perp_zone(const np02_line_seg *n,
+        np02_dist_from_xy_xy *result) const;
+    void get_distance_from_rect_pt(const np02_rect *rect,
+        const np02_rect_pt_idx& rect_pt_idx, 
+        np02_dist_from_xy_xy *result) const;
+    void get_distance_from_line_seg_p01(const np02_line_seg *n,
+        const bool& is_from_seg_p0, np02_dist_from_xy_xy *result) const;
+    void get_distance_from_line_seg_centerline_intersect(const np02_line_seg *n,
+        np02_dist_from_xy_xy *result_0, np02_dist_from_xy_xy *result_1) const;
+};
+
 
 /* rectangle 
                              fwd_dot_ctr
@@ -382,6 +708,7 @@ public:
     const np02_xy& get_p01() const { return m_p01; }
     const np02_xy& get_p10() const { return m_p10; }
     const np02_xy& get_p11() const { return m_p11; }
+    const np02_xy& get_pt_by_idx( const np02_rect_pt_idx& i ) const;
 
     virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const;
     virtual void get_loc_grid_indices_for_init(
@@ -395,6 +722,8 @@ public:
         np02_xy *other_near_xy=NULL) const;
     virtual double get_distance_from_circle(const np02_circle *c,
         np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const;
     virtual double get_distance_from_line_seg(const np02_line_seg *n,
         np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const;
     virtual double get_distance_from_rect(const np02_rect *r,
@@ -407,6 +736,7 @@ public:
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
 
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
         size_t *err_msg_pos ) const;
     int verify_data_num( char *err_msg, const size_t err_msg_capacity,
@@ -442,6 +772,7 @@ public:
     const np02_xy& get_p_0() const{ return m_p_0; }
     const np02_xy& get_p_1() const{ return m_p_1; }
     const double& get_width() const{ return m_width; }
+    double get_len() const{ return (m_fwd_dot_1 - m_fwd_dot_0); }
     const np02_xy& get_fwd() const{ return m_fwd; }
     const double& get_fwd_dot_0() const{ return m_fwd_dot_0; }
     const double& get_fwd_dot_1() const{ return m_fwd_dot_1; }
@@ -453,11 +784,15 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    double get_distance_from_xy_hw(const np02_xy& xy,
+        const double& hw, np02_xy *near_xy=NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const;
     virtual double get_distance_from_circle(const np02_circle *c,
         np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const;
     virtual double get_distance_from_line_seg(const np02_line_seg *n,
         np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const;
     virtual double get_distance_from_line_seg_double_check(
@@ -473,6 +808,7 @@ public:
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
 
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     int verify_data_num( char *err_msg, const size_t err_msg_capacity,
@@ -509,6 +845,8 @@ public:
         np02_xy *other_near_xy=NULL) const;
     virtual double get_distance_from_circle(const np02_circle *c,
         np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const;
     virtual double get_distance_from_line_seg(const np02_line_seg *n,
         np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const;
     virtual double get_distance_from_rect(const np02_rect *r,
@@ -521,6 +859,7 @@ public:
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
 
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
@@ -628,6 +967,7 @@ public:
         else{ ctr_y = m_y_min; }
         return ctr_y; }
 
+    uint64_t hash( const uint64_t& h_in=0 ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     std::ostream& ostream_output(std::ostream& os) const;
@@ -733,6 +1073,7 @@ public:
     np02_shp_alloc *get_shp_alloc() const;
     lyr_idx_type get_lyr_idx() const;
 
+    uint64_t hash( const uint64_t& h_in=0 ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     std::ostream& ostream_output(std::ostream& os) const;
@@ -743,9 +1084,6 @@ public:
 
 class np02_loc_grid{
 public:
-    typedef std::vector<np02_shape *> shape_vec;
-    typedef shape_vec::iterator shape_vec_itr;
-    typedef shape_vec::const_iterator shape_vec_citr;
     typedef std::vector<np02_loc_grid_node *> loc_grid_node_vec;
     typedef loc_grid_node_vec::iterator loc_grid_node_vec_itr;
     typedef loc_grid_node_vec::const_iterator loc_grid_node_vec_citr;
@@ -763,6 +1101,7 @@ private:
     loc_grid_node_vec m_loc_grid_vec;
     shp_type_idx_shape_vec m_idx_shape_vec;/* temporary vec for shape search */
     np02_uint16_pair_vec m_idx_pair_vec; /* temporary vec */
+    double m_small_distance;
 public:
     np02_loc_grid();
    ~np02_loc_grid();
@@ -787,10 +1126,12 @@ public:
         return (loc_grid_idx < m_loc_grid_vec.size()) ?
             m_loc_grid_vec[loc_grid_idx] : NULL; }
     void get_shapes_near_shape(const np02_shape *s,
-        shape_vec *shapes) const;
+        np02_shape_vec *shapes) const;
     void get_shapes_in_bb(const np02_xy& xy_min, const np02_xy& xy_max,
-        shape_vec *shapes ) const;
+        np02_shape_vec *shapes ) const;
+    double get_small_distance() const{ return m_small_distance; }
 
+    uint64_t hash( const uint64_t& h_in=0 ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     std::ostream& ostream_output(std::ostream& os) const;
@@ -814,6 +1155,7 @@ private:
 class np02_shp_alloc{
 private:
     typedef std::vector<np02_circle *> circle_vec;
+    typedef std::vector<np02_arc *> arc_vec;
     typedef std::vector<np02_line_seg *> line_seg_vec;
     typedef std::vector<np02_rect *> rect_vec;
     typedef std::vector<np02_polygon *> polygon_vec;
@@ -822,6 +1164,8 @@ private:
 private:
     circle_vec m_alloc_circle_vec;
     np02_circle *m_circle_free_chain;
+    arc_vec m_alloc_arc_vec;
+    np02_arc *m_arc_free_chain;
     line_seg_vec m_alloc_line_seg_vec;
     np02_line_seg *m_line_seg_free_chain;
     rect_vec m_alloc_rect_vec;
@@ -837,11 +1181,18 @@ public:
     virtual ~np02_shp_alloc();
 
     void free_shape(np02_shape *shape);
+
     size_t alloc_get_circle_count() const{ return m_alloc_circle_vec.size(); }
     np02_circle *alloc_get_circle_by_idx(const size_t& i) const{
         return (i<m_alloc_circle_vec.size())?m_alloc_circle_vec.at(i):NULL; }
     np02_circle *alloc_circle();
     void free_circle(np02_circle *circle);
+
+    size_t alloc_get_arc_count() const{ return m_alloc_arc_vec.size(); }
+    np02_arc *alloc_get_arc_by_idx(const size_t& i) const{
+        return (i<m_alloc_arc_vec.size())?m_alloc_arc_vec.at(i):NULL; }
+    np02_arc *alloc_arc();
+    void free_arc(np02_arc *arc);
 
     size_t alloc_get_line_seg_count() const{
         return m_alloc_line_seg_vec.size(); }
@@ -862,6 +1213,8 @@ public:
     np02_polygon *alloc_polygon();
     void free_polygon(np02_polygon *polygon);
 
+    size_t alloc_get_total_shape_count() const;
+
     size_t alloc_get_loc_grid_node_count() const{
         return m_alloc_loc_grid_node_vec.size(); }
     np02_loc_grid_node *alloc_get_loc_grid_node_by_idx(
@@ -877,6 +1230,7 @@ public:
     void free_loc_grid(np02_loc_grid *loc_grid);
 
     /* debug */
+    uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
@@ -884,6 +1238,8 @@ public:
 private:
     void alloc_delete_all();
     int verify_data_alloc_circle( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    int verify_data_alloc_arc( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data_alloc_line_seg( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
@@ -929,15 +1285,13 @@ private:
         return low + ((high-low)*static_cast<double>(get_rand_int())/
         static_cast<double>(RAND_MAX-1));
         }
-    void make_rand_shapes( np02_shp_alloc *shp_alloc, const int& ww, 
+    void make_rand_shapes( np02_shp_alloc *shp_alloc, const int& ww,
         const int& hh,  const double& basic_length,
-        std::vector<np02_shape *> *shapes,
-        std::vector<np02_bmp_color> *colors );
+        np02_shape_vec *shapes, std::vector<np02_bmp_color> *colors );
     np02_shape *make_rand_shape( np02_shp_alloc *shp_alloc,
         const np02_xy& shp_ctr, const double& basic_length,
         np02_bmp_color *color );
-    void free_shapes( np02_shp_alloc *shp_alloc,
-        std::vector<np02_shape *> *shapes );
+    void free_shapes( np02_shp_alloc *shp_alloc, np02_shape_vec *shapes );
 
     int execute_test_1();
     int execute_test_1_0();

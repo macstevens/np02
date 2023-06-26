@@ -122,6 +122,12 @@ public:
     np02_bmp_file();
     np02_bmp_file(const np02_bmp_file_init_params& init_params);
    ~np02_bmp_file();
+    const int32_t& get_width_px() const{ return m_header.width_px; }
+    const int32_t& get_height_px() const{ return m_header.height_px; }
+    int32_t get_clamped_i( const int32_t& i ) const;
+    int32_t get_clamped_j( const int32_t& j ) const;
+    double get_clamped_i_dbl( const int32_t& i ) const;
+    double get_clamped_j_dbl( const int32_t& j ) const;
     void init(const np02_bmp_file_init_params& init_params);
     void draw_pixel(const int32_t& i,const int32_t& j, const np02_bmp_color& color);
     void draw_line(const int32_t& i0,const int32_t& j0, 

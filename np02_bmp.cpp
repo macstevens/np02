@@ -620,6 +620,42 @@ init(init_params);
 np02_bmp_file::~np02_bmp_file(){
 }
 
+int32_t np02_bmp_file::get_clamped_i( const int32_t& i ) const{
+int32_t clamped_i = 0;
+if( m_header.width_px > 0 ){
+    clamped_i = ( i < 0 ) ? 0 : 
+        ( i >= m_header.width_px ) ? (m_header.width_px-1) : i;
+    }
+return clamped_i;
+}
+
+int32_t np02_bmp_file::get_clamped_j( const int32_t& j ) const{
+int32_t clamped_j = 0;
+if( m_header.height_px > 0 ){
+    clamped_j = ( j < 0 ) ? 0 : 
+        ( j >= m_header.height_px ) ? (m_header.width_px-1) : j;
+    }
+return clamped_j;
+}
+
+double np02_bmp_file::get_clamped_i_dbl( const int32_t& i ) const{
+double clamped_i = 0.0;
+if( m_header.width_px > 0 ){
+    const double max_i = static_cast<double>( m_header.width_px - 1 );
+    clamped_i = ( i < 0.0 ) ? 0.0 : ( i > max_i ) ? max_i : i;
+    }
+return clamped_i;
+}
+
+double np02_bmp_file::get_clamped_j_dbl( const int32_t& j ) const{
+double clamped_j = 0.0;
+if( m_header.width_px > 0 ){
+    const double max_j = static_cast<double>( m_header.height_px - 1 );
+    clamped_j = ( j < 0.0 ) ? 0.0 : ( j > max_j ) ? max_j : j;
+    }
+return clamped_j;
+}
+
 void np02_bmp_file::init(const np02_bmp_file_init_params& init_params){
 /* initialize rows */
 size_t row_idx;
@@ -740,10 +776,10 @@ else {
 
 void np02_bmp_file::draw_box(const int32_t& i0,const int32_t& j0, 
         const int32_t& i1, const int32_t& j1, const np02_bmp_color& color){
-const int32_t i_min = (i0 < i1) ? i0 : i1;
-const int32_t i_max = (i0 > i1) ? i0 : i1;
-const int32_t j_min = (j0 < j1) ? j0 : j1;
-const int32_t j_max = (j0 > j1) ? j0 : j1;
+const int32_t i_min = get_clamped_i( (i0 < i1) ? i0 : i1 );
+const int32_t i_max = get_clamped_i( (i0 > i1) ? i0 : i1 );
+const int32_t j_min = get_clamped_j( (j0 < j1) ? j0 : j1 );
+const int32_t j_max = get_clamped_j( (j0 > j1) ? j0 : j1 );
 for(int32_t i = i_min; i <= i_max; ++i){
     for(int32_t j = j_min; j <= j_max; ++j){
         draw_pixel(i, j, color);
@@ -768,10 +804,10 @@ void np02_bmp_file::draw_wide_line(const double& ii0, const double& jj0,
     const double& ii1,const double& jj1, const double& ww,
     const np02_bmp_color& color){
 const double hw = (ww > 2.0) ? ww/2.0 : 1.0;
-const double ii_min = floor(((ii0 < ii1) ? ii0 : ii1) - hw);
-const double ii_max = ceil(((ii0 > ii1) ? ii0 : ii1) + hw);
-const double jj_min = floor(((jj0 < jj1) ? jj0 : jj1) - hw);
-const double jj_max = ceil(((jj0 > jj1) ? jj0 : jj1) + hw);
+const double ii_min = get_clamped_i_dbl( floor(((ii0 < ii1) ? ii0 : ii1) - hw) );
+const double ii_max = get_clamped_i_dbl( ceil(((ii0 > ii1) ? ii0 : ii1) + hw) );
+const double jj_min = get_clamped_j_dbl( floor(((jj0 < jj1) ? jj0 : jj1) - hw) );
+const double jj_max = get_clamped_j_dbl( ceil(((jj0 > jj1) ? jj0 : jj1) + hw) );
 const double hw_sq = hw*hw;
 
 const double dx = ii1 - ii0;
@@ -839,10 +875,10 @@ for(double ii = ii_min; ii <= ii_max; ++ii){
 
 void np02_bmp_file::draw_circle(const double& ii_ctr, const double& jj_ctr, 
     const double& rr, const np02_bmp_color& color){
-const double ii_min = floor(ii_ctr-rr);
-const double ii_max = ceil(ii_ctr+rr);
-const double jj_min = floor(jj_ctr-rr);
-const double jj_max = ceil(jj_ctr+rr);
+const double ii_min = get_clamped_i_dbl( floor(ii_ctr-rr) );
+const double ii_max = get_clamped_i_dbl( ceil(ii_ctr+rr) );
+const double jj_min = get_clamped_j_dbl( floor(jj_ctr-rr) );
+const double jj_max = get_clamped_j_dbl( ceil(jj_ctr+rr) );
 const double r_sq = rr*rr;
 for(double ii = ii_min; ii <= ii_max; ++ii){
     const int32_t i = static_cast<int32_t>(ii);

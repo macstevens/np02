@@ -66,6 +66,10 @@ public:
         const double& x1, const double& y1, const uint8_t& color);
     void draw_circle(const std::string& layer, const double& x_ctr,
         const double& y_ctr, const double& radius, const uint8_t& color);
+    void draw_arc(const std::string& layer, const double& x_ctr,
+        const double& y_ctr, const double& radius,
+        const double& start_angle_deg, const double& end_angle_deg,
+        const uint8_t& color);
     void draw_text(const std::string& layer,const std::string& text,const double& x0,
         const double& y0, const double& height, const double& rot_deg,
         const uint8_t& color);

@@ -1,4 +1,4 @@
-np02 -- Newport Algorithm Library Version 02
+np02 -- Newport Algorithm 02 Library Version 0.0.3
 
 
 LICENSE
@@ -22,6 +22,9 @@ This library supports efficient 2D Shape Algorithms:
   Find shortest line segment connecting two shapes.
   
 
+
+DEPENDENCIES
+  CF01 version 0.2.0:  https://github.com/macstevens/cf01/commit/e8c3e84f63ca31855c25f1df6956a3437be66b31
 
 
 BUILD TOOLS

@@ -86,6 +86,35 @@ m_dxf_shape_str_vec.push_back(os.str());
 add_layer(layer, color);
 }
 
+void np02_dxf_file::draw_arc(const std::string& layer, const double& x_ctr,
+    const double& y_ctr, const double& radius,
+    const double& start_angle_deg, const double& end_angle_deg,
+    const uint8_t& color){
+std::ostringstream os;
+double start_angle = fmod( start_angle_deg, 360.0 );
+if( start_angle < 0 ){ start_angle += 360.0; }
+double end_angle = fmod( end_angle_deg, 360.0 );
+if( end_angle < 0 ){ end_angle += 360.0; }
+os <<  "  0\n"
+    << "CIRCLE\n"
+    << "  8\n"
+    << layer << "\n"
+    << " 10\n"
+    << x_ctr << "\n"
+    << " 20\n"
+    << y_ctr << "\n"
+    << " 40\n"
+    << radius << "\n"
+    << " 50\n"
+    << start_angle << "\n"
+    << " 51\n"
+    << end_angle << "\n"
+    << " 62\n"
+    << static_cast<int>(color) << "\n";
+m_dxf_shape_str_vec.push_back(os.str());
+add_layer(layer, color);
+}
+
 void np02_dxf_file::draw_text(const std::string& layer,
     const std::string& text, const double& x0, const double& y0,
     const double& height, const double& rot_deg, const uint8_t& color){

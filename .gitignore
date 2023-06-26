@@ -4,3 +4,6 @@
 *.vpwhist
 *.vtg
 /slickedit_gcc/Debug/
+/slickedit_gcc/Release/*.bmp
+/slickedit_gcc/Release/
+/slickedit_gcc/Profile/

@@ -8,10 +8,12 @@ copyright notice and this permission notice appear in all copies.
 
 Reference: https://opensource.org/licenses/ISC
 */
+#include "cf01.h"
 #include "np02.h"
 
 int main (int argc, char *argv[])
 {
+CF01_SET_JRNL_WRITE_MODE_ON();
 return np02::np02_test_main::run(argc, argv);
 }
 
