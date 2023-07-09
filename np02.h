@@ -149,6 +149,7 @@ public:
     void set_x(const double& x){m_x = x;}
     void set_y(const double& y){m_y = y;}
     void set_xy(const double& x, const double& y){m_x = x; m_y = y;}
+    void rotate(const np02_xy& rot_ctr, const double& rot_deg);
     double get_len_sq() const{
         const double len_sq = ( m_x * m_x ) + ( m_y * m_y );
         return len_sq; }
@@ -163,6 +164,9 @@ public:
         const double dx = m_x - xy.get_x();
         const double dy = m_y - xy.get_y();
         return sqrt((dx*dx) + (dy*dy)); }
+    np02_xy get_midpoint_to(const np02_xy& b) const{
+        const np02_xy m((m_x + b.get_x())/2.0,(m_y + b.get_y())/2.0);
+        return m; }
     np02_xy get_unit_vector_to(const np02_xy& b) const{
         const double dx = b.get_x() - m_x;
         const double dy = b.get_y() - m_y;
@@ -268,6 +272,9 @@ public:
         const np02_xy temp_xy = m_near_xy;
         m_near_xy = m_other_near_xy;
         m_other_near_xy = temp_xy; }
+    int verify_result( const np02_shape *a, const np02_shape *b, 
+        char *err_msg, const size_t err_msg_capacity,
+        size_t *err_msg_pos ) const;
 };
 
 enum np02_rect_pt_idx{
@@ -419,7 +426,7 @@ private:
 public:
     np02_circle();
     virtual ~np02_circle();
-    void set_free_chain_next(np02_circle *n){
+    void set_free_chain_next(np02_circle *n){ /* TODO: use dedicated member variable instead of re-using locator grid node */
         set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
     np02_circle *get_free_chain_next() const{ return
         reinterpret_cast<np02_circle *>(get_head_loc_grid_node()); }
@@ -554,6 +561,7 @@ public:
     bool is_less_than_half_circle() const{
         const double angle_range = m_end_angle_deg-m_start_angle_deg; 
         return ( angle_range < 180.0 ) ? true : false; }
+    bool arc_is_approx_straight_line_seg() const;
     /* result > 0 => p is inside zone 0 */
     double distance_in_zone_0(const np02_xy& p) const{
         const double fwd_0_dot_p = m_fwd_0.dot(p);
@@ -638,7 +646,7 @@ private:
         np02_dist_from_xy_xy *result) const;
     void get_distance_from_arc_centerline_intersect(const np02_arc *a,
         np02_dist_from_xy_xy *result_0, np02_dist_from_xy_xy *result_1) const;
-    void get_distance_from_shape_zone_01(const np02_shape *shp,
+    void get_distance_from_shape_arc_p01(const np02_shape *shp,
         const bool& is_from_p0, np02_dist_from_xy_xy *result) const;
     void get_distance_from_shape_far_perp_zone(const np02_shape *shp,
         np02_dist_from_xy_xy *result) const;
@@ -807,6 +815,12 @@ public:
     virtual void translate_no_loc_grid(const np02_xy& dxy);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
+    size_t seg_seg_centerline_intersect(const np02_line_seg *n,
+        np02_xy *xy_intsct_0=NULL, np02_xy *xy_intsct_1=NULL) const;
+    int verify_data_seg_seg_centerline_intersect_result(
+        const np02_line_seg *n, np02_xy *xy_intsct_0, np02_xy *xy_intsct_1,
+        const size_t& intsct_count, char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
@@ -1257,6 +1271,27 @@ class np02_shape_test{
 public:
     static int run_shape_test(const int& shape_test_number, const int& 
         shape_test_iteration_count, const int& shape_test_rand_seed);
+
+private:
+    struct bmp_debug_file_params{
+        np02_bmp_file *m_bmp_file;
+        std::string m_header; /* program name */
+        std::string m_footer; /* file name */
+        np02_xy m_xy_min; 
+        double m_pixel_num;
+        double m_basic_length;
+        bool m_err_xy_found;
+        bool m_draw_overlap_circle;
+        bool m_draw_connecting_line;
+        const np02_shape_vec *m_shapes;
+        const std::vector<np02_bmp_color> *m_color_vec;
+        const np02_xy *m_err_xy_a;
+        const np02_xy *m_err_xy_b;
+        const np02_shape *m_err_shape_a;
+        const np02_shape *m_err_shape_b;
+        std::string *m_debug_str_out;
+        };
+
 private:
     int m_shape_test_number;
     int m_shape_test_iteration_count;
@@ -1266,6 +1301,16 @@ private:
     uint32_t m_iteration;
 
     uint32_t m_rand_uint32; /* pseudo-random number*/
+
+    /* error buffers */
+    enum { TEMP_ERR_MSG_CAP = 4096, 
+        TEST_ERR_MSG_CAPACITY = 16384, 
+        };
+    char m_temp_err_msg[TEMP_ERR_MSG_CAP];
+    size_t m_temp_err_msg_pos;
+    char m_test_err_msg[TEST_ERR_MSG_CAPACITY];
+    size_t m_test_err_msg_pos;
+
 public:
     np02_shape_test();
    ~np02_shape_test();
@@ -1292,6 +1337,9 @@ private:
         const np02_xy& shp_ctr, const double& basic_length,
         np02_bmp_color *color );
     void free_shapes( np02_shp_alloc *shp_alloc, np02_shape_vec *shapes );
+    void draw_debug_shapes( const bmp_debug_file_params& p);
+    void print_temp_buf_to_test_buf( const char *filename, const int line_num );
+    void print_and_clear_test_buf();
 
     int execute_test_1();
     int execute_test_1_0();

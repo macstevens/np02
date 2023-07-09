@@ -81,6 +81,25 @@ const double np02_shape::m_teensy_ratio_sq =
     ( np02_shape::m_teensy_ratio * np02_shape::m_teensy_ratio );
 const double np02_shape::m_googol = 1e100;
 
+
+void np02_xy::rotate(const np02_xy& rot_ctr, const double& rot_deg){
+    const np02_xy rot_arm_initial(m_x - rot_ctr.get_x(),
+        m_y - rot_ctr.get_y());
+    if( (rot_arm_initial.get_x() != 0.0) || 
+        (rot_arm_initial.get_y() != 0.0) ){
+        double cos_rot = 1.0;
+        double sin_rot = 0.0;
+        np02_shape::cos_sin_rot_deg( rot_deg, &cos_rot, &sin_rot );
+        const np02_xy rot_arm_final(
+            (rot_arm_initial.get_x() * cos_rot) -
+            (rot_arm_initial.get_y() * sin_rot),
+            (rot_arm_initial.get_x() * sin_rot) +
+            (rot_arm_initial.get_y() * cos_rot));
+        set_x( rot_ctr.get_x() + rot_arm_final.get_x() );
+        set_y( rot_ctr.get_y() + rot_arm_final.get_y() );
+        }
+    }
+
 uint64_t np02_xy::hash( const uint64_t& h_in ) const{
 uint64_t h = h_in;
 #if defined( CF01_SUPPORT )
@@ -94,6 +113,131 @@ h ^= ((h << 47) | (h >> 17));
 #endif
 return h;
 }
+
+int np02_dist_from_xy_xy::verify_result( const np02_shape *a,
+    const np02_shape *b, char *err_msg, const size_t err_msg_capacity,
+    size_t *err_msg_pos ) const{
+AA_INCR_CALL_DEPTH();
+int err_cnt = 0;
+
+if(NULL == a ){
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "data error: %s[%i] %s\n", __FILE__, __LINE__, __FUNCTION__);
+    }
+if(NULL == b ){
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "data error: %s[%i] %s\n", __FILE__, __LINE__, __FUNCTION__);
+    }
+
+if((NULL != a) && (NULL != b)){
+    CF01_HASH_CONSISTENCY_CHECK( a->hash(b->hash()) );
+
+    /* bounding box */
+    np02_xy bb_a_xy_min, bb_a_xy_max;
+    np02_xy bb_b_xy_min, bb_b_xy_max;
+    np02_xy bb_ab_xy_min, bb_ab_xy_max;
+    a->get_bb(&bb_a_xy_min, &bb_a_xy_max);
+    b->get_bb(&bb_b_xy_min, &bb_b_xy_max);
+    bb_ab_xy_min.set_x( ( bb_a_xy_min.get_x() < bb_b_xy_min.get_x() ) ?
+                          bb_a_xy_min.get_x() : bb_b_xy_min.get_x() );
+    bb_ab_xy_min.set_y( ( bb_a_xy_min.get_y() < bb_b_xy_min.get_y() ) ?
+                          bb_a_xy_min.get_y() : bb_b_xy_min.get_y() );
+    bb_ab_xy_max.set_x( ( bb_a_xy_max.get_x() > bb_b_xy_max.get_x() ) ?
+                          bb_a_xy_max.get_x() : bb_b_xy_max.get_x() );
+    bb_ab_xy_max.set_y( ( bb_a_xy_max.get_y() > bb_b_xy_max.get_y() ) ?
+                          bb_a_xy_max.get_y() : bb_b_xy_max.get_y() );
+    
+    /* bounding box overlap 
+           AAAAAAAAAA            
+           A        A            
+           A        A            
+           A        A            
+           A    BBBBBBBBBBBBBBB        
+           A    B   A         B  
+           A    B   A         B  
+           AAAAABAAAA         B  
+                BBBBBBBBBBBBBBB 
+    */
+    const bool bb_overlap = np02_shape::is_bb_overlap( bb_a_xy_min, bb_a_xy_max,
+        bb_b_xy_min, bb_b_xy_max );
+    
+    /* max err distance */
+    const double bb_ab_semi_perimeter = 
+        ( bb_ab_xy_max.get_x() - bb_ab_xy_min.get_x() ) +
+        ( bb_ab_xy_max.get_y() - bb_ab_xy_min.get_y() );
+    const double max_err_d = bb_ab_semi_perimeter * np02_shape::m_little_ratio;
+
+    /* distance from near_xy to shape A */
+    const double xy_near_a_a_d = a->get_distance_from_xy(m_near_xy);
+
+    if( ( NP02_ANSWER_QUALITY_SMALL_ERROR == m_answer_quality  ) &&
+        m_near_xy_defined && ( xy_near_a_a_d > max_err_d ) ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "data error: %s[%i] %s"
+            "  xy_near_a_a_d=%g > max_err_d=%g"
+            "  distance_from=%g  near_xy_defined=%i  other_near_xy_defined=%i"
+            "  near_xy=(%g,%g)  other_near_xy=(%g,%g)\n", 
+            __FILE__, __LINE__, __FUNCTION__,
+            xy_near_a_a_d, max_err_d,
+            m_distance_from, static_cast<int>(m_near_xy_defined),
+            static_cast<int>(m_other_near_xy_defined),
+            m_near_xy.get_x(), m_near_xy.get_y(), 
+            m_other_near_xy.get_x(), m_other_near_xy.get_y());
+        }
+
+    /* distance from near_xy to shape B */
+    const double xy_near_b_b_d = b->get_distance_from_xy(m_other_near_xy);
+
+    if( ( NP02_ANSWER_QUALITY_SMALL_ERROR == m_answer_quality  ) &&
+        m_other_near_xy_defined && ( xy_near_b_b_d > max_err_d ) ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "data error: %s[%i] %s"
+            "  xy_near_b_b_d=%g > max_err_d=%g"
+            "  distance_from=%g  near_xy_defined=%i  other_near_xy_defined=%i"
+            "  near_xy=(%g,%g)  other_near_xy=(%g,%g)\n", 
+            __FILE__, __LINE__, __FUNCTION__,
+            xy_near_b_b_d, max_err_d,
+            m_distance_from, static_cast<int>(m_near_xy_defined),
+            static_cast<int>(m_other_near_xy_defined),
+            m_near_xy.get_x(), m_near_xy.get_y(), 
+            m_other_near_xy.get_x(), m_other_near_xy.get_y());
+        }
+
+    /* distance from near_xy to shape B */
+    const double near_pt_d = m_near_xy.get_distance_to(m_other_near_xy);
+
+    if( bb_overlap ){
+        
+        }
+    else{
+        if( ( NP02_ANSWER_QUALITY_SMALL_ERROR == m_answer_quality  ) &&
+            ( m_distance_from < -max_err_d ) ){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "data error: %s[%i] %s"
+                "  m_distance_from=%g < -max_err_d=%g"
+                "  near_xy_defined=%i  other_near_xy_defined=%i"
+                "  near_xy=(%g,%g)  other_near_xy=(%g,%g)\n", 
+                __FILE__, __LINE__, __FUNCTION__,
+                m_distance_from, -max_err_d,
+                static_cast<int>(m_near_xy_defined),
+                static_cast<int>(m_other_near_xy_defined),
+                m_near_xy.get_x(), m_near_xy.get_y(), 
+                m_other_near_xy.get_x(), m_other_near_xy.get_y());
+            }
+
+
+        }
+    }
+
+AA_DECR_CALL_DEPTH();
+return err_cnt;
+}
+
 
 void np02_shape::cos_sin_rot_deg( const double& rot_deg,
     double *cos_rot, double *sin_rot ){
@@ -352,7 +496,7 @@ if((NULL != shape_a) && (NULL != shape_b)){
     const double bb_ab_semi_perimeter = 
         ( bb_ab_xy_max.get_x() - bb_ab_xy_min.get_x() ) +
         ( bb_ab_xy_max.get_y() - bb_ab_xy_min.get_y() );
-    const double max_err_d = bb_ab_semi_perimeter * np02_shape::m_little_ratio;
+    const double max_err_d = bb_ab_semi_perimeter * 8 * np02_shape::m_little_ratio;
 
     /* distances to xy_near_a, xy_near_b 
 
@@ -1661,6 +1805,13 @@ if( NULL != aux_params ){
 AA_DECR_CALL_DEPTH();
 }
 
+bool np02_arc::arc_is_approx_straight_line_seg() const{
+static const double almost_straight_angle_deg = 1e-6;
+const double angle_range = m_end_angle_deg-m_start_angle_deg; 
+return ( angle_range < almost_straight_angle_deg ) ? true : false;
+}
+
+
 /*
                            
                                   true     .
@@ -1760,8 +1911,16 @@ double np02_arc::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
 AA_INCR_CALL_DEPTH();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
-const double hw = m_width / 2.0;
-const double d = get_distance_from_xy_hw(xy, hw, near_xy);
+double d = 0.0;
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d = straight_seg.get_distance_from_xy(xy, near_xy );
+    }
+else{
+    const double hw = m_width / 2.0;
+    d = get_distance_from_xy_hw(xy, hw, near_xy);
+    }
 AA_DECR_CALL_DEPTH();
 return d;
 }
@@ -1772,10 +1931,19 @@ double np02_arc::get_distance_from_line_seg_ab(const np02_xy& xy_a,
 AA_INCR_CALL_DEPTH();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(m_radius >= 0.0);
+double d = 0.0;
 np02_line_seg line_seg_ab;
 line_seg_ab.init( xy_a, xy_b, 0.0);
-const double d = get_distance_from_line_seg( &line_seg_ab, near_xy,
-   other_near_xy);
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d = straight_seg.get_distance_from_line_seg( &line_seg_ab, near_xy,
+        other_near_xy);
+    }
+else{
+    d = get_distance_from_line_seg( &line_seg_ab, near_xy,
+        other_near_xy);
+    }
 AA_DECR_CALL_DEPTH();
 return d;
 }
@@ -1787,22 +1955,34 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != c);
 AUTO_ASSERT(m_radius >= 0.0);
 AUTO_ASSERT(c->get_radius() >= 0.0);
-np02_xy c_ctr_near_xy;
-const double d = get_distance_from_xy_hw(c->get_ctr(), 0.0, &c_ctr_near_xy);
-const double hw = m_width / 2.0;
-const double& r = c->get_radius();
-const double d_from = d - (hw + r);
-if( ( NULL != near_xy ) || ( NULL != circle_near_xy ) ){
-    const np02_xy lambda_cp = (c->get_ctr()).get_unit_vector_to(c_ctr_near_xy);
-    if( NULL != near_xy ){
-        near_xy->set_x( c_ctr_near_xy.get_x() - ( hw * lambda_cp.get_x() ));
-        near_xy->set_y( c_ctr_near_xy.get_y() - ( hw * lambda_cp.get_y() ));
-        }
-    if( NULL != circle_near_xy ){
-        circle_near_xy->set_x((c->get_ctr()).get_x() + (r * lambda_cp.get_x()));
-        circle_near_xy->set_y((c->get_ctr()).get_y() + (r * lambda_cp.get_y()));
+double d_from = 0.0;
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d_from = straight_seg.get_distance_from_circle(c, near_xy, circle_near_xy );
+    }
+else{
+    np02_xy c_ctr_near_xy;
+    const double d = get_distance_from_xy_hw(c->get_ctr(), 0.0, &c_ctr_near_xy);
+    const double hw = m_width / 2.0;
+    const double& r = c->get_radius();
+    d_from = d - (hw + r);
+    if( ( NULL != near_xy ) || ( NULL != circle_near_xy ) ){
+        const np02_xy lambda_cp = (c->get_ctr()).get_unit_vector_to(c_ctr_near_xy);
+        if( NULL != near_xy ){
+            near_xy->set_x( c_ctr_near_xy.get_x() - ( hw * lambda_cp.get_x() ));
+            near_xy->set_y( c_ctr_near_xy.get_y() - ( hw * lambda_cp.get_y() ));
+            }
+        if( NULL != circle_near_xy ){
+            circle_near_xy->set_x((c->get_ctr()).get_x() + (r * lambda_cp.get_x()));
+            circle_near_xy->set_y((c->get_ctr()).get_y() + (r * lambda_cp.get_y()));
+            }
         }
     }
+
+AUTO_ASSERT( (NULL == near_xy) || 
+    (get_distance_from_xy( *near_xy ) < 
+    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
 AA_DECR_CALL_DEPTH();
 return d_from;
 }
@@ -1811,62 +1991,88 @@ double np02_arc::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
 AA_INCR_CALL_DEPTH();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
-np02_dist_from_xy_xy best_result;
-best_result.m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
-best_result.m_distance_from = np02_shape::m_googol;
-best_result.m_near_xy_defined = false;
-best_result.m_other_near_xy_defined = false;
-best_result.m_near_xy.set_xy(0.0,0.0);
-best_result.m_other_near_xy.set_xy(0.0,0.0);
-np02_dist_from_xy_xy result;
-for( int i = 0; i < 6; ++i ){
-    switch( i ){
-    default:
-    case 0:
-        get_distance_from_arc_zone_0(a, &result);
-        break;
-    case 1:
-        get_distance_from_arc_zone_1(a, &result);
-        break;
-    case 2:
-        get_distance_from_arc_far_perp_zone(a, &result);
-        break;
-    case 3:
-        a->get_distance_from_arc_zone_0(this, &result);
-        result.swap_xy();
-        break;
-    case 4:
-        a->get_distance_from_arc_zone_1(this, &result);
-        result.swap_xy();
-        break;
-    case 5:
-        a->get_distance_from_arc_far_perp_zone(this, &result);
-        result.swap_xy();
-        break;
+double d_from = 0.0;
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d_from = straight_seg.get_distance_from_arc(a, near_xy, arc_near_xy );
+    AUTO_ASSERT( (NULL == near_xy) || 
+        (get_distance_from_xy( *near_xy ) < 
+        ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
+    }
+else if ( a->arc_is_approx_straight_line_seg()) {
+    np02_line_seg straight_seg_a;
+    straight_seg_a.init( a->m_p_0, a->m_p_1, a->m_width );
+    d_from = get_distance_from_line_seg(&straight_seg_a, near_xy, arc_near_xy );
+    AUTO_ASSERT( (NULL == near_xy) || 
+        (get_distance_from_xy( *near_xy ) < 
+        ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
+    }
+else{
+    np02_dist_from_xy_xy best_result;
+    best_result.m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
+    best_result.m_distance_from = np02_shape::m_googol;
+    best_result.m_near_xy_defined = false;
+    best_result.m_other_near_xy_defined = false;
+    best_result.m_near_xy.set_xy(0.0,0.0);
+    best_result.m_other_near_xy.set_xy(0.0,0.0);
+    np02_dist_from_xy_xy result;
+    for( int i = 0; i < 6; ++i ){
+        switch( i ){
+        default:
+        case 0:
+            get_distance_from_arc_zone_0(a, &result);
+            break;
+        case 1:
+            get_distance_from_arc_zone_1(a, &result);
+            break;
+        case 2:
+            get_distance_from_arc_far_perp_zone(a, &result);
+            break;
+        case 3:
+            a->get_distance_from_arc_zone_0(this, &result);
+            result.swap_xy();
+            break;
+        case 4:
+            a->get_distance_from_arc_zone_1(this, &result);
+            result.swap_xy();
+            break;
+        case 5:
+            a->get_distance_from_arc_far_perp_zone(this, &result);
+            result.swap_xy();
+            break;
+            }
+        if( result.compare(best_result) < 0 ){
+            best_result = result;
+            }
         }
+    
+    np02_dist_from_xy_xy result_1;
+    get_distance_from_arc_centerline_intersect(a, &result, &result_1);
     if( result.compare(best_result) < 0 ){
         best_result = result;
         }
+    if( result_1.compare(best_result) < 0 ){
+        best_result = result_1;
+        }
+    
+    if( NULL != near_xy ){
+        *near_xy = best_result.m_near_xy;
+        }
+    if( NULL != arc_near_xy ){
+        *arc_near_xy = best_result.m_other_near_xy;
+        }
+    d_from = best_result.m_distance_from;
     }
 
-np02_dist_from_xy_xy result_1;
-get_distance_from_arc_centerline_intersect(a, &result, &result_1);
-if( result.compare(best_result) < 0 ){
-    best_result = result;
-    }
-if( result_1.compare(best_result) < 0 ){
-    best_result = result_1;
-    }
-
-if( NULL != near_xy ){
-    *near_xy = best_result.m_near_xy;
-    }
-if( NULL != arc_near_xy ){
-    *arc_near_xy = best_result.m_other_near_xy;
-    }
-
+AUTO_ASSERT( (NULL == near_xy) || 
+    (get_distance_from_xy( *near_xy ) < 
+    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
+AUTO_ASSERT( (NULL == arc_near_xy) || 
+    (a->get_distance_from_xy( *arc_near_xy ) < 
+    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
 AA_DECR_CALL_DEPTH();
-return best_result.m_distance_from;
+return d_from;
 }
 
 double np02_arc::get_distance_from_line_seg(
@@ -1878,59 +2084,72 @@ AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(m_radius >= 0.0);
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
-np02_dist_from_xy_xy best_result;
-best_result.m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
-best_result.m_distance_from = np02_shape::m_googol;
-best_result.m_near_xy_defined = false;
-best_result.m_other_near_xy_defined = false;
-best_result.m_near_xy.set_xy(0.0,0.0);
-best_result.m_other_near_xy.set_xy(0.0,0.0);
-np02_dist_from_xy_xy result;
-for( int i = 0; i < 6; ++i ){
-    switch( i ){
-    default:
-    case 0:
-        get_distance_from_shape_zone_01(n, true, &result);
-        break;
-    case 1:
-        get_distance_from_shape_zone_01(n, false, &result);
-        break;
-    case 2:
-        get_distance_from_shape_far_perp_zone(n, &result);
-        break;
-    case 3:
-        get_distance_from_line_seg_far_perp_zone(n, &result);
-        break;
-    case 4:
-        get_distance_from_line_seg_p01(n, false, &result);
-        break;
-    case 5:
-        get_distance_from_line_seg_p01(n, true, &result);
-        break;
+double d_from = 0.0;
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d_from = straight_seg.get_distance_from_line_seg(n, near_xy, line_seg_near_xy );
+    }
+else{
+    np02_dist_from_xy_xy best_result;
+    best_result.m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
+    best_result.m_distance_from = np02_shape::m_googol;
+    best_result.m_near_xy_defined = false;
+    best_result.m_other_near_xy_defined = false;
+    best_result.m_near_xy.set_xy(0.0,0.0);
+    best_result.m_other_near_xy.set_xy(0.0,0.0);
+    np02_dist_from_xy_xy result;
+    for( int i = 0; i < 6; ++i ){
+        switch( i ){
+        default:
+        case 0:
+            get_distance_from_shape_arc_p01(n, true, &result);
+            break;
+        case 1:
+            get_distance_from_shape_arc_p01(n, false, &result);
+            break;
+        case 2:
+            get_distance_from_shape_far_perp_zone(n, &result);
+            break;
+        case 3:
+            get_distance_from_line_seg_far_perp_zone(n, &result);
+            break;
+        case 4:
+            get_distance_from_line_seg_p01(n, false, &result);
+            break;
+        case 5:
+            get_distance_from_line_seg_p01(n, true, &result);
+            break;
+            }
+        if( result.compare(best_result) < 0 ){
+            best_result = result;
+            }
         }
+    
+    np02_dist_from_xy_xy result_1;
+    get_distance_from_line_seg_centerline_intersect(n, &result, &result_1);
+    
     if( result.compare(best_result) < 0 ){
         best_result = result;
         }
+    if( result_1.compare(best_result) < 0 ){
+        best_result = result_1;
+        }
+    
+    if( NULL != near_xy ){
+        *near_xy = best_result.m_near_xy;
+        }
+    if( NULL != line_seg_near_xy ){
+        *line_seg_near_xy = best_result.m_other_near_xy;
+        }
+    d_from = best_result.m_distance_from;
     }
 
-np02_dist_from_xy_xy result_1;
-get_distance_from_line_seg_centerline_intersect(n, &result, &result_1);
-
-if( result.compare(best_result) < 0 ){
-    best_result = result;
-    }
-if( result_1.compare(best_result) < 0 ){
-    best_result = result_1;
-    }
-
-if( NULL != near_xy ){
-    *near_xy = best_result.m_near_xy;
-    }
-if( NULL != line_seg_near_xy ){
-    *line_seg_near_xy = best_result.m_other_near_xy;
-    }
+AUTO_ASSERT( (NULL == near_xy) || 
+    (get_distance_from_xy( *near_xy ) < 
+    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
 AA_DECR_CALL_DEPTH();
-return best_result.m_distance_from;
+return d_from;
 }
 
 double np02_arc::get_distance_from_rect(const np02_rect *rect,
@@ -1941,71 +2160,127 @@ AA_ALWAYS_ASSERT(NULL != rect);
 AUTO_ASSERT(m_radius >= 0.0);
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
-np02_dist_from_xy_xy best_result;
-best_result.m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
-best_result.m_distance_from = np02_shape::m_googol;
-best_result.m_near_xy_defined = false;
-best_result.m_other_near_xy_defined = false;
-best_result.m_near_xy.set_xy(0.0,0.0);
-best_result.m_other_near_xy.set_xy(0.0,0.0);
-np02_dist_from_xy_xy result;
-for( int i = 0; i < 3; ++i ){
-    switch( i ){
-    default:
-    case 0:
-        get_distance_from_shape_zone_01(rect, true, &result);
-        break;
-    case 1:
-        get_distance_from_shape_zone_01(rect, false, &result);
-        break;
-    case 2:
-        get_distance_from_shape_far_perp_zone(rect, &result);
-        break;
-        }
-    if( result.compare(best_result) < 0 ){
-        best_result = result;
-        }
+double d_from = 0.0;
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d_from = straight_seg.get_distance_from_rect(rect, near_xy,
+        rect_near_xy );
     }
-np02_rect_pt_idx rect_pt_idx = static_cast<np02_rect_pt_idx>(0);
-for( ; rect_pt_idx < NP02_RECT_PT_IDX_COUNT;
-    rect_pt_idx = static_cast<np02_rect_pt_idx>(rect_pt_idx + 1) ){
-    get_distance_from_rect_pt(rect, rect_pt_idx, &result);
-    if( result.compare(best_result) < 0 ){
-        best_result = result;
-        }
-    }
-
-/* if bounding boxes overlap, check rectangle diagonals */
-np02_xy rect_bb_xy_min(0.0,0.0);
-np02_xy rect_bb_xy_max(0.0,0.0);
-rect->get_bb( &rect_bb_xy_min, &rect_bb_xy_max );
-const bool bb_overlap = is_bb_overlap( m_bb_xy_min, m_bb_xy_max,
-     rect_bb_xy_min, rect_bb_xy_max );
-if( bb_overlap ){
-    np02_line_seg diag_seg;
-    result.m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
-    result.m_near_xy_defined = true;
-    result.m_other_near_xy_defined = true;
-    for( int i = 0; i < 2; ++i ){
-        const np02_xy& p_a = (0 == i) ? rect->get_p00() : rect->get_p01();
-        const np02_xy& p_b = (0 == i) ? rect->get_p11() : rect->get_p10();
-        diag_seg.init( p_a, p_b, 0.0 );
-        result.m_distance_from = get_distance_from_line_seg( &diag_seg,
-            &(result.m_near_xy), &(result.m_other_near_xy) );
+else{
+    np02_dist_from_xy_xy best_result;
+    best_result.m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
+    best_result.m_distance_from = np02_shape::m_googol;
+    best_result.m_near_xy_defined = false;
+    best_result.m_other_near_xy_defined = false;
+    best_result.m_near_xy.set_xy(0.0,0.0);
+    best_result.m_other_near_xy.set_xy(0.0,0.0);
+    np02_dist_from_xy_xy result;
+    for( int i = 0; i < 3; ++i ){
+        switch( i ){
+        default:
+        case 0:
+            get_distance_from_shape_arc_p01(rect, true, &result);
+            break;
+        case 1:
+            get_distance_from_shape_arc_p01(rect, false, &result);
+            break;
+        case 2:
+            get_distance_from_shape_far_perp_zone(rect, &result);
+            break;
+            }
         if( result.compare(best_result) < 0 ){
             best_result = result;
             }
         }
+    np02_rect_pt_idx rect_pt_idx = static_cast<np02_rect_pt_idx>(0);
+    for( ; rect_pt_idx < NP02_RECT_PT_IDX_COUNT;
+        rect_pt_idx = static_cast<np02_rect_pt_idx>(rect_pt_idx + 1) ){
+        get_distance_from_rect_pt(rect, rect_pt_idx, &result);
+        if( result.compare(best_result) < 0 ){
+            best_result = result;
+            }
+        }
+    
+    /* if bounding boxes overlap, check rectangle diagonals and parallel bisectors
+
+      A   A   B
+      *---+---*  
+      |\  |  /|
+      | \ | / |
+      |  \|/  |
+     A+---+---+B
+      |  /|\  |
+      | / | \ |
+      |/  |  \|
+     A*---+---*B
+          B
+    */
+    np02_xy rect_bb_xy_min(0.0,0.0);
+    np02_xy rect_bb_xy_max(0.0,0.0);
+    rect->get_bb( &rect_bb_xy_min, &rect_bb_xy_max );
+    const bool bb_overlap = is_bb_overlap( m_bb_xy_min, m_bb_xy_max,
+         rect_bb_xy_min, rect_bb_xy_max );
+    if( bb_overlap ){
+        np02_xy p_a(0.0,0.0);
+        np02_xy p_b(0.0,0.0);
+        np02_line_seg seg_ab;
+        result.m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
+        result.m_near_xy_defined = true;
+        result.m_other_near_xy_defined = true;
+        for( int i = 0; i < 4; ++i ){
+            switch(i){
+            default:
+            case 0:
+                p_a = rect->get_p00();
+                p_b = rect->get_p11();
+                break;
+            case 1:
+                p_a = rect->get_p01();
+                p_b = rect->get_p10();
+                break;
+            case 2:
+                p_a = (rect->get_p00()).get_midpoint_to(rect->get_p01());
+                p_b = (rect->get_p10()).get_midpoint_to(rect->get_p11());
+                break;
+            case 3:
+                p_a = (rect->get_p00()).get_midpoint_to(rect->get_p10());
+                p_b = (rect->get_p01()).get_midpoint_to(rect->get_p11());
+                break;
+                }
+            seg_ab.init( p_a, p_b, 0.0 );
+            np02_xy seg_ab_near_xy(0.0,0.0);
+            get_distance_from_line_seg( &seg_ab, &(result.m_near_xy), &seg_ab_near_xy );
+            result.m_distance_from = rect->get_distance_from_xy(result.m_near_xy,
+                &(result.m_other_near_xy));
+            if( result.compare(best_result) < 0 ){
+                best_result = result;
+                }
+
+            /* calculate from arc centerline */
+            get_distance_from_xy_hw(seg_ab_near_xy, 0.0, &result.m_near_xy);
+            result.m_distance_from = rect->get_distance_from_xy(result.m_near_xy,
+                &(result.m_other_near_xy));
+            if( result.compare(best_result) < 0 ){
+                best_result = result;
+                }
+            }
+        }
+    
+    if( NULL != near_xy ){
+        *near_xy = best_result.m_near_xy;
+        }
+    if( NULL != rect_near_xy ){
+        *rect_near_xy = best_result.m_other_near_xy;
+        }
+    d_from = best_result.m_distance_from;
     }
 
-if( NULL != near_xy ){
-    *near_xy = best_result.m_near_xy;
-    }
-if( NULL != rect_near_xy ){
-    *rect_near_xy = best_result.m_other_near_xy;
-    }
+AUTO_ASSERT( (NULL == near_xy) || 
+    (get_distance_from_xy( *near_xy ) < 
+    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
 AA_DECR_CALL_DEPTH();
-return best_result.m_distance_from;
+return d_from;
 }
 
 double np02_arc::get_distance_from_polygon(const np02_polygon *p,
@@ -2030,17 +2305,24 @@ double d = 0.0;
 AA_INCR_CALL_DEPTH();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 if(NULL != s){
-    const np02_circle *c = dynamic_cast<const np02_circle *>(s);
-    const np02_arc *a = dynamic_cast<const np02_arc *>(s);
-    const np02_line_seg *n = dynamic_cast<const np02_line_seg *>(s);
-    const np02_rect *r = dynamic_cast<const np02_rect *>(s);
-    const np02_polygon *p = dynamic_cast<const np02_polygon *>(s);
-    if(NULL != c){ d = get_distance_from_circle(c, near_xy, other_near_xy); }
-    else if(NULL!=a){ d=get_distance_from_arc(a, near_xy, other_near_xy); }
-    else if(NULL!=n){ d=get_distance_from_line_seg(n, near_xy, other_near_xy); }
-    else if(NULL!=r){ d=get_distance_from_rect(r, near_xy, other_near_xy); }
-    else if(NULL!=p){ d=get_distance_from_polygon(p, near_xy, other_near_xy); }
-    else{ AA_ALWAYS_ASSERT(false); }
+    if( arc_is_approx_straight_line_seg() ){
+        np02_line_seg straight_seg;
+        straight_seg.init( m_p_0, m_p_1, m_width );
+        d = straight_seg.get_distance_from_shape(s, near_xy, other_near_xy );
+        }
+    else{
+        const np02_circle *c = dynamic_cast<const np02_circle *>(s);
+        const np02_arc *a = dynamic_cast<const np02_arc *>(s);
+        const np02_line_seg *n = dynamic_cast<const np02_line_seg *>(s);
+        const np02_rect *r = dynamic_cast<const np02_rect *>(s);
+        const np02_polygon *p = dynamic_cast<const np02_polygon *>(s);
+        if(NULL != c){ d = get_distance_from_circle(c, near_xy, other_near_xy); }
+        else if(NULL!=a){ d=get_distance_from_arc(a, near_xy, other_near_xy); }
+        else if(NULL!=n){ d=get_distance_from_line_seg(n, near_xy, other_near_xy); }
+        else if(NULL!=r){ d=get_distance_from_rect(r, near_xy, other_near_xy); }
+        else if(NULL!=p){ d=get_distance_from_polygon(p, near_xy, other_near_xy); }
+        else{ AA_ALWAYS_ASSERT(false); }
+        }
     }
 AA_DECR_CALL_DEPTH();
 return d;
@@ -2049,13 +2331,31 @@ return d;
 void np02_arc::translate_no_loc_grid(const np02_xy& dxy){
 if( ( dxy.get_x() != 0.0 ) && ( dxy.get_y() != 0.0 ) ){
     init_params p;
-    p.m_ctr.set_x( m_ctr.get_x() + dxy.get_x() );
-    p.m_ctr.set_y( m_ctr.get_y() + dxy.get_y() );
-    p.m_radius = m_radius;
-    p.m_start_angle_deg = m_start_angle_deg;
-    p.m_end_angle_deg = m_end_angle_deg;
-    p.m_width = m_width;    
-    init(p);
+    if( arc_is_approx_straight_line_seg() ){
+        init3pt_params init3pt_prm;
+        const np02_xy p0( m_p_0.get_x() + dxy.get_x(),
+                          m_p_0.get_y() + dxy.get_y() );
+        const np02_xy p1( m_p_1.get_x() + dxy.get_x(),
+                          m_p_1.get_y() + dxy.get_y() );
+        init3pt_prm.m_pa = p0;
+        init3pt_prm.m_pb.set_x( p0.get_x() + p1.get_x() );
+        init3pt_prm.m_pb.set_y( p0.get_y() + p1.get_y() );
+        init3pt_prm.m_pc = p1;
+        init3pt_prm.m_width = m_width;
+        init3pt_prm.m_max_radius = m_radius;
+        init3pt_aux_params aux_prm;
+        init3pt_to_init_params( init3pt_prm, &p, &aux_prm ); 
+        init_force_p01(p, aux_prm );
+        }
+    else{
+        p.m_ctr.set_x( m_ctr.get_x() + dxy.get_x() );
+        p.m_ctr.set_y( m_ctr.get_y() + dxy.get_y() );
+        p.m_radius = m_radius;
+        p.m_start_angle_deg = m_start_angle_deg;
+        p.m_end_angle_deg = m_end_angle_deg;
+        p.m_width = m_width;    
+        init(p);
+        }
     }
 }
 
@@ -2067,36 +2367,54 @@ if( ( rot_d < -360.0 ) || ( rot_d > 360.0 ) ){
     }
 if( 0.0 != rot_d ){
     init_params p;
-    const np02_xy rot_arm_initial(m_ctr.get_x() - rot_ctr.get_x(),
-        m_ctr.get_y() - rot_ctr.get_y());
-    if( (rot_arm_initial.get_x() != 0.0) || (rot_arm_initial.get_y() != 0.0) ){
-        double cos_rot = 1.0;
-        double sin_rot = 0.0;
-        cos_sin_rot_deg( rot_d, &cos_rot, &sin_rot );
-        const np02_xy rot_arm_final(
-            (rot_arm_initial.get_x() * cos_rot) -
-            (rot_arm_initial.get_y() * sin_rot),
-            (rot_arm_initial.get_x() * sin_rot) +
-            (rot_arm_initial.get_y() * cos_rot));
-        p.m_ctr.set_x( rot_ctr.get_x() + rot_arm_final.get_x() );
-        p.m_ctr.set_y( rot_ctr.get_y() + rot_arm_final.get_y() );
+    if( arc_is_approx_straight_line_seg() ){
+        init3pt_params init3pt_prm;
+        np02_xy p0 = m_p_0;
+        np02_xy p1 = m_p_1;
+        p0.rotate(rot_ctr,rot_deg);
+        p1.rotate(rot_ctr,rot_deg);
+        init3pt_prm.m_pa = p0;
+        init3pt_prm.m_pb.set_x( p0.get_x() + p1.get_x() );
+        init3pt_prm.m_pb.set_y( p0.get_y() + p1.get_y() );
+        init3pt_prm.m_pc = p1;
+        init3pt_prm.m_width = m_width;
+        init3pt_prm.m_max_radius = m_radius;
+        init3pt_aux_params aux_prm;
+        init3pt_to_init_params( init3pt_prm, &p, &aux_prm ); 
+        init_force_p01(p, aux_prm );
         }
     else{
-        p.m_ctr = m_ctr;
+        const np02_xy rot_arm_initial(m_ctr.get_x() - rot_ctr.get_x(),
+            m_ctr.get_y() - rot_ctr.get_y());
+        if( (rot_arm_initial.get_x() != 0.0) || (rot_arm_initial.get_y() != 0.0) ){
+            double cos_rot = 1.0;
+            double sin_rot = 0.0;
+            cos_sin_rot_deg( rot_d, &cos_rot, &sin_rot );
+            const np02_xy rot_arm_final(
+                (rot_arm_initial.get_x() * cos_rot) -
+                (rot_arm_initial.get_y() * sin_rot),
+                (rot_arm_initial.get_x() * sin_rot) +
+                (rot_arm_initial.get_y() * cos_rot));
+            p.m_ctr.set_x( rot_ctr.get_x() + rot_arm_final.get_x() );
+            p.m_ctr.set_y( rot_ctr.get_y() + rot_arm_final.get_y() );
+            }
+        else{
+            p.m_ctr = m_ctr;
+            }
+        p.m_radius = m_radius;
+        p.m_start_angle_deg = m_start_angle_deg + rot_d;
+        p.m_end_angle_deg = m_end_angle_deg + rot_d;
+        if( p.m_start_angle_deg < -360.0 ){
+            p.m_start_angle_deg += 360.0;
+            p.m_end_angle_deg += 360.0;
+            }
+        else if( p.m_end_angle_deg > 360.0 ){
+            p.m_start_angle_deg -= 360.0;
+            p.m_end_angle_deg -= 360.0;
+            }
+        p.m_width = m_width;    
+        init(p);
         }
-    p.m_radius = m_radius;
-    p.m_start_angle_deg = m_start_angle_deg + rot_d;
-    p.m_end_angle_deg = m_end_angle_deg + rot_d;
-    if( p.m_start_angle_deg < -360.0 ){
-        p.m_start_angle_deg += 360.0;
-        p.m_end_angle_deg += 360.0;
-        }
-    else if( p.m_end_angle_deg > 360.0 ){
-        p.m_start_angle_deg -= 360.0;
-        p.m_end_angle_deg -= 360.0;
-        }
-    p.m_width = m_width;    
-    init(p);
     }
 }
 
@@ -2521,6 +2839,18 @@ size_t intsct_count = 0;
 if( NULL == a ){
     intsct_count = 0;
     }
+else if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, 0.0 );
+    intsct_count = a->arc_seg_centerline_intersect( &straight_seg,
+        xy_intsct_0, xy_intsct_1);
+    }
+else if( a->arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg_a;
+    straight_seg_a.init( a->get_p_0(), a->get_p_1(), 0.0 );
+    intsct_count = arc_seg_centerline_intersect( &straight_seg_a,
+        xy_intsct_0, xy_intsct_1);
+    }
 else if( ( m_ctr == a->get_ctr() ) && ( m_radius == a->get_radius() ) ){
     if( 0.0 == m_radius ){
         intsct_count = 1;
@@ -2724,7 +3054,6 @@ else{
 AUTO_ASSERT( 0 == verify_data_arc_arc_centerline_intersect_result( a,
     xy_intsct_0, xy_intsct_1, intsct_count,
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-
 return intsct_count;
 }
 
@@ -2836,38 +3165,46 @@ AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(m_radius >= 0.0);
 size_t intsct_count = 0;
 
-/* find near point of center on infinite line */
-const np02_xy& line_seg_fwd = n->get_fwd();
-const double fwd_cross_ctr = line_seg_fwd.cross(m_ctr);
-const double d = fabs( n->get_fwd_cross_01() - fwd_cross_ctr );
-if( d <= m_radius ){
-    /* find intersections of circle with infinite line */
-    const double& fwd_x = line_seg_fwd.get_x();
-    const double& fwd_y = line_seg_fwd.get_y();
-    const double& fwd_cross_01 = n->get_fwd_cross_01();
-    const double fwd_dot_ctr = line_seg_fwd.dot(m_ctr);
-    const double d_sq = d * d;
-    const double r_sq = m_radius * m_radius;
-    const double h_sq = r_sq - d_sq;
-    AUTO_ASSERT(h_sq >= 0.0);
-    const double h = ( h_sq > 0.0 ) ? sqrt( h_sq ) : 0.0;
-    const int i_end = (h > 0.0 ) ? 2 : 1;
-    for( int i = 0; i < i_end; ++i ){
-        const double fwd_dot_p = ( 0 == i ) ?
-            ( fwd_dot_ctr - h ) : ( fwd_dot_ctr + h );
-        if( ( n->get_fwd_dot_0() <= fwd_dot_p ) &&
-            ( fwd_dot_p <= n->get_fwd_dot_1() ) ){
-            /* intersection P lies along line segment */
-            const np02_xy p(( fwd_x * fwd_dot_p ) - ( fwd_y * fwd_cross_01 ),
-                            ( fwd_y * fwd_dot_p ) + ( fwd_x * fwd_cross_01 ));
-            if( is_in_perp_zone(p) ){
-                /* intersection P lies along arc */
-                ++intsct_count;
-                if( 1 == intsct_count ){
-                    if( NULL != xy_intsct_0 ){ *xy_intsct_0 = p; }
-                    }
-                else{
-                    if( NULL != xy_intsct_1 ){ *xy_intsct_1 = p; }
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, 0.0 );
+    intsct_count = straight_seg.seg_seg_centerline_intersect( n,
+        xy_intsct_0, xy_intsct_1);
+    }
+else{
+    /* find near point of center on infinite line */
+    const np02_xy& line_seg_fwd = n->get_fwd();
+    const double fwd_cross_ctr = line_seg_fwd.cross(m_ctr);
+    const double d = fabs( n->get_fwd_cross_01() - fwd_cross_ctr );
+    if( d <= m_radius ){
+        /* find intersections of circle with infinite line */
+        const double& fwd_x = line_seg_fwd.get_x();
+        const double& fwd_y = line_seg_fwd.get_y();
+        const double& fwd_cross_01 = n->get_fwd_cross_01();
+        const double fwd_dot_ctr = line_seg_fwd.dot(m_ctr);
+        const double d_sq = d * d;
+        const double r_sq = m_radius * m_radius;
+        const double h_sq = r_sq - d_sq;
+        AUTO_ASSERT(h_sq >= 0.0);
+        const double h = ( h_sq > 0.0 ) ? sqrt( h_sq ) : 0.0;
+        const int i_end = (h > 0.0 ) ? 2 : 1;
+        for( int i = 0; i < i_end; ++i ){
+            const double fwd_dot_p = ( 0 == i ) ?
+                ( fwd_dot_ctr - h ) : ( fwd_dot_ctr + h );
+            if( ( n->get_fwd_dot_0() <= fwd_dot_p ) &&
+                ( fwd_dot_p <= n->get_fwd_dot_1() ) ){
+                /* intersection P lies along line segment */
+                const np02_xy p(( fwd_x * fwd_dot_p ) - ( fwd_y * fwd_cross_01 ),
+                                ( fwd_y * fwd_dot_p ) + ( fwd_x * fwd_cross_01 ));
+                if( is_in_perp_zone(p) ){
+                    /* intersection P lies along arc */
+                    ++intsct_count;
+                    if( 1 == intsct_count ){
+                        if( NULL != xy_intsct_0 ){ *xy_intsct_0 = p; }
+                        }
+                    else{
+                        if( NULL != xy_intsct_1 ){ *xy_intsct_1 = p; }
+                        }
                     }
                 }
             }
@@ -3019,110 +3356,138 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(m_radius >= 0.0);
 AUTO_ASSERT(hw >= 0.0);
 double d = 0.0;
-if( is_in_perp_zone(xy) ){
-    const double ctr_dx = xy.get_x() - m_ctr.get_x();
-    const double ctr_dy = xy.get_y() - m_ctr.get_y();
-    const double ctr_dsq = (ctr_dx*ctr_dx) + (ctr_dy*ctr_dy);
-    const double d_to_ctr = sqrt(ctr_dsq);
-    const double d_arc_ctr = d_to_ctr - m_radius;
 
-    /*
-                       outside                 .
-                                             .
-                             ***           .
-      .                 *           *    .
-          .          *                 +P0
-              .    *      inside      .      
-                  +P1               .
-                       .           .        
-                            .    .
-                               +ctr
-    */
-    if( d_arc_ctr > 0.0 ){
-        /* outside */
-        d = d_arc_ctr - hw;
-        if(NULL != near_xy){
-            const double radius_big = m_radius + hw;
-            if(radius_big < np02_shape::m_teensy_ratio){
-                *near_xy = m_ctr; 
-                }
-            else if(d_to_ctr < np02_shape::m_teensy_ratio){
-                near_xy->set_x(m_ctr.get_x()+(radius_big * m_fwd_0.get_y()));
-                near_xy->set_y(m_ctr.get_y()-(radius_big * m_fwd_0.get_x()));
-                }
-            else{ 
-                const double f_out = radius_big / d_to_ctr;
-                near_xy->set_x(m_ctr.get_x() + (f_out * ctr_dx));
-                near_xy->set_y(m_ctr.get_y() + (f_out * ctr_dy));
-                }
-            }
-        }
-    else{
-        /* inside */
-        d = -d_arc_ctr - hw;
-        if(NULL != near_xy){
-            const double radius_small = (m_radius > hw) ? (m_radius-hw) : 0.0;
-            if(radius_small < np02_shape::m_teensy_ratio){
-                *near_xy = m_ctr; 
-                }
-            else if(d_to_ctr < np02_shape::m_teensy_ratio){
-                near_xy->set_x(m_ctr.get_x()+(radius_small * m_fwd_0.get_y()));
-                near_xy->set_y(m_ctr.get_y()-(radius_small * m_fwd_0.get_x()));
-                }
-            else{ 
-                const double f_in = radius_small / d_to_ctr;
-                near_xy->set_x(m_ctr.get_x() + (f_in * ctr_dx));
-                near_xy->set_y(m_ctr.get_y() + (f_in * ctr_dy));
-                }
-            }
-        }
+if( arc_is_approx_straight_line_seg() ){
+    np02_line_seg straight_seg;
+    straight_seg.init( m_p_0, m_p_1, m_width );
+    d = straight_seg.get_distance_from_xy_hw(xy, hw, near_xy );
     }
 else{
-    const double dx_p0 = xy.get_x() - m_p_0.get_x();
-    const double dy_p0 = xy.get_y() - m_p_0.get_y();
-    const double dsq_p0 = (dx_p0*dx_p0) + (dy_p0*dy_p0);
-    const double dx_p1 = xy.get_x() - m_p_1.get_x();
-    const double dy_p1 = xy.get_y() - m_p_1.get_y();
-    const double dsq_p1 = (dx_p1*dx_p1) + (dy_p1*dy_p1);
-    if( dsq_p0 <= dsq_p1 ){
-        /* p0 closest */
-        const double d_to_p0 = sqrt(dsq_p0);
-        d = d_to_p0 - hw;
-        if(NULL != near_xy){
-            if(hw < np02_shape::m_teensy_ratio) {
-                *near_xy = m_p_0; 
+    bool in_perp_zone = is_in_perp_zone(xy);
+    if( in_perp_zone ){
+        const double ctr_dx = xy.get_x() - m_ctr.get_x();
+        const double ctr_dy = xy.get_y() - m_ctr.get_y();
+        const double ctr_dsq = (ctr_dx*ctr_dx) + (ctr_dy*ctr_dy);
+        const double d_to_ctr = sqrt(ctr_dsq);
+        const double d_arc_ctr = d_to_ctr - m_radius;
+    
+        /*
+                           outside                 .
+                                                 .
+                                 ***           .
+          .                 *           *    .
+              .          *                 +P0
+                  .    *      inside      .      
+                      +P1               .
+                           .           .        
+                                .    .
+                                   +ctr
+        */
+        if( d_arc_ctr > 0.0 ){
+            /* outside */
+            d = d_arc_ctr - hw;
+            if(NULL != near_xy){
+                const double radius_big = m_radius + hw;
+                if(radius_big < np02_shape::m_teensy_ratio){
+                    *near_xy = m_ctr; 
+                    }
+                else if(d_to_ctr < np02_shape::m_teensy_ratio){
+                    near_xy->set_x(m_ctr.get_x()+(radius_big * m_fwd_0.get_y()));
+                    near_xy->set_y(m_ctr.get_y()-(radius_big * m_fwd_0.get_x()));
+                    }
+                else{ 
+                    const double f_out = radius_big / d_to_ctr;
+                    near_xy->set_x(m_ctr.get_x() + (f_out * ctr_dx));
+                    near_xy->set_y(m_ctr.get_y() + (f_out * ctr_dy));
+                    }
+                AUTO_ASSERT( 
+                    fabs(fabs( near_xy->get_distance_to( m_ctr ) - m_radius ) - hw)
+                    <= ( np02_shape::m_small_ratio * (1.0 + radius_big) ) );
+                }
             }
-            else if(d_to_p0 < np02_shape::m_teensy_ratio){
-                near_xy->set_x(m_p_0.get_x() - (hw * m_fwd_0.get_x()));
-                near_xy->set_y(m_p_0.get_y() - (hw * m_fwd_0.get_y()));
-            }
+        else{
+            /* inside */
+            d = -d_arc_ctr - hw;
+            np02_xy nrxy(0.0,0.0);
+            const double radius_small = (m_radius > hw) ? (m_radius-hw) : 0.0;
+            if(radius_small < np02_shape::m_teensy_ratio){
+                nrxy = m_ctr;
+                AUTO_ASSERT( in_perp_zone );
+                }
             else{
-                const double f0 = hw / d_to_p0;
-                near_xy->set_x(m_p_0.get_x() + (f0 * dx_p0));
-                near_xy->set_y(m_p_0.get_y() + (f0 * dy_p0));
+                if(d_to_ctr < np02_shape::m_teensy_ratio){
+                    nrxy.set_x(m_ctr.get_x()+(radius_small * m_fwd_0.get_y()));
+                    nrxy.set_y(m_ctr.get_y()-(radius_small * m_fwd_0.get_x()));
+                    }
+                else{ 
+                    const double f_in = radius_small / d_to_ctr;
+                    nrxy.set_x(m_ctr.get_x() + (f_in * ctr_dx));
+                    nrxy.set_y(m_ctr.get_y() + (f_in * ctr_dy));
+                    }
+                in_perp_zone = is_in_perp_zone(nrxy);
+                }
+
+            if( in_perp_zone && ( NULL != near_xy ) ){
+                *near_xy = nrxy;
+                AUTO_ASSERT( 
+                    fabs(fabs( near_xy->get_distance_to( m_ctr ) - m_radius ) - hw)
+                    <= ( np02_shape::m_small_ratio * (1.0 + m_radius + hw) ) );
                 }
             }
         }
-    else{
-        /* p1 closest */
-        const double d_to_p1 = sqrt(dsq_p1);
-        d = d_to_p1 - hw;
-        if(NULL != near_xy){
-            if(hw < np02_shape::m_teensy_ratio) {
-                *near_xy = m_p_1; 
+    if( !in_perp_zone ){
+        const double dx_p0 = xy.get_x() - m_p_0.get_x();
+        const double dy_p0 = xy.get_y() - m_p_0.get_y();
+        const double dsq_p0 = (dx_p0*dx_p0) + (dy_p0*dy_p0);
+        const double dx_p1 = xy.get_x() - m_p_1.get_x();
+        const double dy_p1 = xy.get_y() - m_p_1.get_y();
+        const double dsq_p1 = (dx_p1*dx_p1) + (dy_p1*dy_p1);
+        if( dsq_p0 <= dsq_p1 ){
+            /* p0 closest */
+            const double d_to_p0 = sqrt(dsq_p0);
+            d = d_to_p0 - hw;
+            if(NULL != near_xy){
+                if(hw < np02_shape::m_teensy_ratio) {
+                    *near_xy = m_p_0; 
                 }
-            else if(d_to_p1 < np02_shape::m_teensy_ratio){
-                near_xy->set_x(m_p_1.get_x() + (hw * m_fwd_1.get_x()));
-                near_xy->set_y(m_p_1.get_y() + (hw * m_fwd_1.get_y()));
+                else if(d_to_p0 < np02_shape::m_teensy_ratio){
+                    near_xy->set_x(m_p_0.get_x() - (hw * m_fwd_0.get_x()));
+                    near_xy->set_y(m_p_0.get_y() - (hw * m_fwd_0.get_y()));
                 }
-            else{
-                const double f1 = hw / d_to_p1;
-                near_xy->set_x(m_p_1.get_x() + (f1 * dx_p1));
-                near_xy->set_y(m_p_1.get_y() + (f1 * dy_p1));
+                else{
+                    const double f0 = hw / d_to_p0;
+                    near_xy->set_x(m_p_0.get_x() + (f0 * dx_p0));
+                    near_xy->set_y(m_p_0.get_y() + (f0 * dy_p0));
+                    }
+    
+                AUTO_ASSERT( fabs( near_xy->get_distance_to( m_p_0 ) - hw)
+                    <= ( np02_shape::m_small_ratio * (1.0 + m_radius + hw ) ) );
+                }
+            }
+        else{
+            /* p1 closest */
+            const double d_to_p1 = sqrt(dsq_p1);
+            d = d_to_p1 - hw;
+            if(NULL != near_xy){
+                if(hw < np02_shape::m_teensy_ratio) {
+                    *near_xy = m_p_1; 
+                    }
+                else if(d_to_p1 < np02_shape::m_teensy_ratio){
+                    near_xy->set_x(m_p_1.get_x() + (hw * m_fwd_1.get_x()));
+                    near_xy->set_y(m_p_1.get_y() + (hw * m_fwd_1.get_y()));
+                    }
+                else{
+                    const double f1 = hw / d_to_p1;
+                    near_xy->set_x(m_p_1.get_x() + (f1 * dx_p1));
+                    near_xy->set_y(m_p_1.get_y() + (f1 * dy_p1));
+                    }
+                AUTO_ASSERT( fabs( near_xy->get_distance_to( m_p_1 ) - hw)
+                    <= ( np02_shape::m_small_ratio * (1.0 + m_radius + hw ) ) );
                 }
             }
         }
     }
+
 AA_DECR_CALL_DEPTH();
 return d;
 }
@@ -3156,24 +3521,24 @@ AA_ALWAYS_ASSERT(NULL != result);
 /* E = point on this arc centerline nearest to M = a->p_0 */
 np02_xy xy_e(0.0,0.0);
 const double dist_m_e = get_distance_from_xy_hw(a->m_p_0, 0.0, &xy_e);
-if( dist_m_e > 0.0 ){
+//if( dist_m_e > 0.0 ) {
     const double dist_z_0 = a->distance_in_zone_0(xy_e);
-    if (dist_z_0 >= 0.0) {
+    const double small_zone_error = get_small_distance() + (m_width/4);
+    if (dist_z_0 >= -small_zone_error) {
         result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
         }
     else{
-        const double small_distance = get_small_distance();
-        if (dist_z_0 >= -small_distance) {
+        if (dist_z_0 >= (-small_zone_error * 2.0)) {
             result->m_answer_quality = NP02_ANSWER_QUALITY_MEDIUM_ERROR;
             }
         else{
             result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;            
             }        
         }
-    }
-else{
-    result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
-    }
+//    }
+//else{
+//    result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
+//    }
 const double hw = m_width / 2.0;
 const double a_hw = (a->m_width)/2.0;
 result->m_distance_from = dist_m_e - (hw + a_hw);
@@ -3190,6 +3555,9 @@ result->m_other_near_xy_defined = true;
     (a->m_p_0).get_x() + (a_hw * lambda_m_e.get_x() ) );
 (result->m_other_near_xy).set_y(
     (a->m_p_0).get_y() + (a_hw * lambda_m_e.get_y() ) );
+
+AUTO_ASSERT( 0 == result->verify_result( this, a, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3226,24 +3594,25 @@ AA_ALWAYS_ASSERT(NULL != result);
 /* E = point on this arc centerline nearest to N = a->p_1 */
 np02_xy xy_e(0.0,0.0);
 const double dist_n_e = get_distance_from_xy_hw(a->m_p_1, 0.0, &xy_e);
-if( dist_n_e > 0.0 ){
+//if( dist_n_e > 0.0 ) {
     const double dist_z_1 = a->distance_in_zone_1(xy_e);
-    if (dist_z_1 >= 0.0) {
+    const double small_zone_error = get_small_distance() + (m_width/4);
+    if (dist_z_1 >= -small_zone_error) {
         result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
         }
     else{
         const double small_distance = get_small_distance();
-        if (dist_z_1 >= -small_distance) {
+        if (dist_z_1 >= (-small_zone_error*2.0)) {
             result->m_answer_quality = NP02_ANSWER_QUALITY_MEDIUM_ERROR;
             }
         else{
             result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;            
             }        
         }
-    }
-else{
-    result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
-    }
+//    }
+//else{
+//    result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
+//    }
 const double hw = m_width / 2.0;
 const double a_hw = (a->m_width)/2.0;
 result->m_distance_from = dist_n_e - (hw + a_hw);
@@ -3260,6 +3629,9 @@ result->m_other_near_xy_defined = true;
     (a->m_p_1).get_x() + (a_hw * lambda_n_e.get_x() ) );
 (result->m_other_near_xy).set_y(
     (a->m_p_1).get_y() + (a_hw * lambda_n_e.get_y() ) );
+
+AUTO_ASSERT( 0 == result->verify_result( this, a, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3292,7 +3664,9 @@ AA_ALWAYS_ASSERT(NULL != result);
 /* E = point on this arc centerline nearest to P = a->ctr */
 np02_xy xy_e(0.0,0.0);
 const double dist_p_e = get_distance_from_xy_hw(a->m_ctr, 0.0, &xy_e);
-if( ( a->is_in_perp_zone(xy_e) ) && ( dist_p_e > a->m_radius) ){
+if( ( a->is_in_perp_zone(xy_e) ) && ( dist_p_e > a->m_radius) && 
+    ( !arc_is_approx_straight_line_seg() ) && 
+    ( !(a->arc_is_approx_straight_line_seg()) ) ){
     result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
     }
 else{
@@ -3314,6 +3688,9 @@ result->m_other_near_xy_defined = true;
     (a->m_ctr).get_x() + (big_r_a * lambda_p_e.get_x() ) );
 (result->m_other_near_xy).set_y(
     (a->m_ctr).get_y() + (big_r_a * lambda_p_e.get_y() ) );
+
+AUTO_ASSERT( 0 == result->verify_result( this, a, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3354,12 +3731,15 @@ for( i = 0; i < 2; ++i ){
         (result->m_near_xy).set_xy(0.0,0.0);
         (result->m_other_near_xy).set_xy(0.0,0.0);
         }
+
+    AUTO_ASSERT( 0 == result->verify_result( this, a, 
+        AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
     }
 
 AA_DECR_CALL_DEPTH();
 }
 
-void np02_arc::get_distance_from_shape_zone_01(const np02_shape *shp,
+void np02_arc::get_distance_from_shape_arc_p01(const np02_shape *shp,
     const bool& is_from_p0, np02_dist_from_xy_xy *result) const{
 AA_INCR_CALL_DEPTH();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
@@ -3368,10 +3748,12 @@ AA_ALWAYS_ASSERT(NULL != result);
 const np02_xy p01 = ( is_from_p0 ) ? m_p_0 : m_p_1;
 const double d_shp_from_p01 =
     shp->get_distance_from_xy( p01, &(result->m_other_near_xy) );
+
+#if 0
 const double dist_z = ( is_from_p0 ) ? 
     distance_in_zone_0(result->m_other_near_xy) :
     distance_in_zone_1(result->m_other_near_xy);
-if (dist_z >= 0.0) {
+if (dist_z >= -m_width/4.0 ) {
     result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
     }
 else{
@@ -3390,6 +3772,19 @@ result->m_other_near_xy_defined = true;
 const np02_xy lambda_pd = p01.get_unit_vector_to( result->m_other_near_xy );
 (result->m_near_xy).set_x( p01.get_x() + ( hw * lambda_pd.get_x() ) );
 (result->m_near_xy).set_y( p01.get_y() + ( hw * lambda_pd.get_y() ) );
+#else
+result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
+const double hw = m_width / 2.0;
+result->m_distance_from = d_shp_from_p01 - hw;
+result->m_near_xy_defined = true;
+result->m_other_near_xy_defined = true;
+const np02_xy lambda_pd = p01.get_unit_vector_to( result->m_other_near_xy );
+(result->m_near_xy).set_x( p01.get_x() + ( hw * lambda_pd.get_x() ) );
+(result->m_near_xy).set_y( p01.get_y() + ( hw * lambda_pd.get_y() ) );
+#endif
+
+AUTO_ASSERT( 0 == result->verify_result( this, shp, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3401,20 +3796,32 @@ AA_ALWAYS_ASSERT(NULL != shp);
 AA_ALWAYS_ASSERT(NULL != result);
 const double d_shp_from_ctr =
     shp->get_distance_from_xy( m_ctr, &(result->m_other_near_xy) );
-if( is_in_perp_zone(result->m_other_near_xy) && ( d_shp_from_ctr >= m_radius ) ){
+if( is_in_perp_zone(result->m_other_near_xy) && ( d_shp_from_ctr >= m_radius )
+    && ( !arc_is_approx_straight_line_seg() ) ){
     result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
     }
 else{
     result->m_answer_quality = NP02_ANSWER_QUALITY_LARGE_ERROR;
     }
 const double hw = m_width / 2.0;
-const double big_r = m_radius + hw;
-result->m_distance_from = d_shp_from_ctr - big_r;
 result->m_near_xy_defined = true;
 result->m_other_near_xy_defined = true;
 const np02_xy lambda_cd = m_ctr.get_unit_vector_to( result->m_other_near_xy );
-(result->m_near_xy).set_x( m_ctr.get_x() + ( big_r * lambda_cd.get_x() ) );
-(result->m_near_xy).set_y( m_ctr.get_y() + ( big_r * lambda_cd.get_y() ) );
+if( d_shp_from_ctr >= m_radius ){
+    const double big_r = m_radius + hw;
+    result->m_distance_from = d_shp_from_ctr - big_r; 
+    (result->m_near_xy).set_x( m_ctr.get_x() + ( big_r * lambda_cd.get_x() ) );
+    (result->m_near_xy).set_y( m_ctr.get_y() + ( big_r * lambda_cd.get_y() ) );
+    }
+else{
+    const double small_r = (m_radius > hw) ? ( m_radius - hw ) : 0.0;
+    result->m_distance_from = small_r - d_shp_from_ctr;
+    (result->m_near_xy).set_x( m_ctr.get_x() + ( small_r * lambda_cd.get_x() ) );
+    (result->m_near_xy).set_y( m_ctr.get_y() + ( small_r * lambda_cd.get_y() ) );
+    }
+
+AUTO_ASSERT( 0 == result->verify_result( this, shp, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3429,7 +3836,8 @@ const double d_seg_ctr_from_ctr =
     n->get_distance_from_xy_hw( m_ctr, 0.0, &seg_ctr_near_xy );
 const double hw = m_width / 2.0;
 const double tol = hw/256.0;
-if( is_in_perp_zone(seg_ctr_near_xy) && ( (d_seg_ctr_from_ctr + tol) >= m_radius ) ){
+if( is_in_perp_zone(seg_ctr_near_xy) && ( (d_seg_ctr_from_ctr + tol) >= m_radius )
+    && ( !arc_is_approx_straight_line_seg() ) ){
     result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
     }
 else{
@@ -3451,6 +3859,9 @@ else{
     }
 (result->m_near_xy).set_x( m_ctr.get_x() + ( big_r * lambda_cd.get_x() ) );
 (result->m_near_xy).set_y( m_ctr.get_y() + ( big_r * lambda_cd.get_y() ) );
+
+AUTO_ASSERT( 0 == result->verify_result( this, n, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3473,6 +3884,9 @@ else{
 result->m_answer_quality = NP02_ANSWER_QUALITY_SMALL_ERROR;
 result->m_near_xy_defined = true;
 result->m_other_near_xy_defined = true;
+
+AUTO_ASSERT( 0 == result->verify_result( this, rect, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3484,11 +3898,11 @@ AA_ALWAYS_ASSERT(NULL != n);
 AA_ALWAYS_ASSERT(NULL != result);
 np02_xy ctr_ln_near_xy;
 const np02_xy& seg_p_01 = (is_from_seg_p0) ? n->get_p_0() : n->get_p_1();
-const double d_ctr_ln_from_ctr_ln =
+const double d_ctr_ln_from_seg_p_01 =
     get_distance_from_xy_hw(seg_p_01, 0.0, &ctr_ln_near_xy);
 const double seg_len = n->get_len();
 AUTO_ASSERT(seg_len >= 0.0);
-const double near_end_tol = seg_len / 8.0;
+const double near_end_tol = seg_len / 4.0;
 const double fwd_dot_near_xy = (n->get_fwd()).dot(ctr_ln_near_xy);
 const double near_seg_zone_01 = (is_from_seg_p0) ? 
     ( fwd_dot_near_xy <= ( n->get_fwd_dot_0() + near_end_tol ) ) :
@@ -3501,7 +3915,7 @@ else{
     }
 const double hw = m_width / 2.0;
 const double seg_hw = (n->get_width()) / 2.0;
-result->m_distance_from = d_ctr_ln_from_ctr_ln - (hw + seg_hw);
+result->m_distance_from = d_ctr_ln_from_seg_p_01 - (hw + seg_hw);
 result->m_near_xy_defined = true;
 result->m_other_near_xy_defined = true;
 const np02_xy lambda_pd = ctr_ln_near_xy.get_unit_vector_to( seg_p_01 );
@@ -3510,6 +3924,8 @@ const np02_xy lambda_pd = ctr_ln_near_xy.get_unit_vector_to( seg_p_01 );
 (result->m_other_near_xy).set_x(seg_p_01.get_x() - (seg_hw*lambda_pd.get_x()));
 (result->m_other_near_xy).set_y(seg_p_01.get_y() - (seg_hw*lambda_pd.get_y()));
 
+AUTO_ASSERT( 0 == result->verify_result( this, n, 
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
 AA_DECR_CALL_DEPTH();
 }
 
@@ -3551,6 +3967,9 @@ for( i = 0; i < 2; ++i ){
         (result->m_near_xy).set_xy(0.0,0.0);
         (result->m_other_near_xy).set_xy(0.0,0.0);
         }
+    
+    AUTO_ASSERT( 0 == result->verify_result( this, n, 
+        AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
     }
 AA_DECR_CALL_DEPTH();
 }
@@ -5121,7 +5540,8 @@ const double cross_m0n1m1 = (dxm0n1*dyn1m1)-(dym0n1*dxn1m1);
 const double cross_n1m1n0 = (dxn1m1*dym1n0)-(dyn1m1*dxm1n0);
 const double cross_m1n0m0 = (dxm1n0*dyn0m0)-(dym1n0*dxn0m0);
 const double cross_n0m0n1 = (dxn0m0*dym0n1)-(dyn0m0*dxm0n1);
-const bool intersect = ( ( ( cross_m0n1m1 <= 0.0) &&
+const bool intersect_possible = 
+                       ( ( ( cross_m0n1m1 <= 0.0) &&
                            ( cross_n1m1n0 <= 0.0) &&
                            ( cross_m1n0m0 <= 0.0) &&
                            ( cross_n0m0n1 <= 0.0) ) ||
@@ -5129,72 +5549,84 @@ const bool intersect = ( ( ( cross_m0n1m1 <= 0.0) &&
                            ( cross_n1m1n0 >= 0.0) &&
                            ( cross_m1n0m0 >= 0.0) &&
                            ( cross_n0m0n1 >= 0.0) ) );
-if(intersect){
-    /*    
-         N0......M1
-        .  * P /   .
-        .    /*     .
-       .   /     *len_n
-       . /len_m     * .
-      M0...............N1
+if(intersect_possible){
+    /*
+    find intersection point (px, py)
+    cross products provide 2 equations, 2 unknowns
+    [-m_fwd.y   m_fwd.x ] [px]  =  m_fwd_cross_01;
+    [-n_fwd.y   n_fwd.x ] [py]  =  n_fwd_cross_01;
+
+    inv([a b]   = (1/det)[ d -b ], det=ad-bc
+        [c d])           [-c  a ]
     */
-    const double len_m = m_fwd_dot_1-m_fwd_dot_0;
-    const double len_n = (n->get_fwd_dot_1())-(n->get_fwd_dot_0());
-    if((len_m > np02_shape::m_teensy_ratio) &&
-       (len_n > np02_shape::m_teensy_ratio)){
-        /* Distance away is negative because one line segment
-        must be moved that distance just to get to zero. 
-        Distance is measured perpendicular from segment to
-        endpoint of other segment
-                 N0......M1               N0......M1      
-                .  * dm1/  .             .  \dn0*   .     
-                .   / *     .            .    *  \   .    
-               .  /      *   .          .   *      \  .   
-               ./dm0        * .         . *       dn1\ .  
-              M0...............N1      M0...............N1
+    const double& m_fwd_x = m_fwd.get_x();
+    const double& m_fwd_y = m_fwd.get_y();
+    const double& n_fwd_x = (n->get_fwd()).get_x();
+    const double& n_fwd_y = (n->get_fwd()).get_y();
+    const double& n_fwd_cross_01 = n->get_fwd_cross_01();
+    const double det = (-m_fwd_y * n_fwd_x) + ( m_fwd_x * n_fwd_y);
+    np02_xy p(0.0,0.0);
+    if( fabs(det) > np02_shape::m_tiny_ratio){
+        p.set_x((( n_fwd_x * m_fwd_cross_01 ) - 
+                     ( m_fwd_x * n_fwd_cross_01 ))/det );
+        p.set_y((( n_fwd_y * m_fwd_cross_01 ) - 
+                     ( m_fwd_y * n_fwd_cross_01 ))/det );
+        }
+    else{
+        /* take the average of all endpoints */
+        p.set_x((xm0 + xm1 + xn0 + xn1)/4.0 );
+        p.set_y((ym0 + ym1 + yn0 + yn1)/4.0 );
+        }
+
+    const double& m_fwd_dot_p = m_fwd.dot(p);
+    const double& n_fwd_dot_p = (n->get_fwd()).dot(p);
+
+    if( ( m_fwd_dot_0 <= m_fwd_dot_p ) &&
+        ( m_fwd_dot_p <= m_fwd_dot_1 ) &&
+        ( n->m_fwd_dot_0 <= n_fwd_dot_p ) &&
+        ( n_fwd_dot_p <= n->m_fwd_dot_1 ) ){
+    
+    
+        /*    
+             N0......M1
+            .  * P /   .
+            .    /*     .
+           .   /     *len_n
+           . /len_m     * .
+          M0...............N1
         */
-        const double dn1 = -fabs(cross_m0n1m1/len_m);
-        const double dm1 = -fabs(cross_n1m1n0/len_n);
-        const double dn0 = -fabs(cross_m1n0m0/len_m);
-        const double dm0 = -fabs(cross_n0m0n1/len_n);
-
-        /* chose shortest abs distance to any */
-        double d_ctr = dn1;
-        if(dm1 > d_ctr){d_ctr = dm1;}
-        if(dn0 > d_ctr){d_ctr = dn0;}
-        if(dn1 > d_ctr){d_ctr = dn1;}
-        const double dd = d_ctr - (mhw + nhw);
-
-        if(dd < d){
-            d = dd; 
-
-            /*
-            find intersection point (px, py)
-            cross products provide 2 equations, 2 unknowns
-            [-m_fwd.y   m_fwd.x ] [px]  =  m_fwd_cross_01;
-            [-n_fwd.y   n_fwd.x ] [py]  =  n_fwd_cross_01;
-
-            inv([a b]   = (1/det)[ d -b ], det=ad-bc
-                [c d])           [-c  a ]
+        const double len_m = m_fwd_dot_1-m_fwd_dot_0;
+        const double len_n = (n->get_fwd_dot_1())-(n->get_fwd_dot_0());
+        if((len_m > np02_shape::m_teensy_ratio) &&
+           (len_n > np02_shape::m_teensy_ratio)){
+            /* Distance away is negative because one line segment
+            must be moved that distance just to get to zero. 
+            Distance is measured perpendicular from segment to
+            endpoint of other segment
+                     N0......M1               N0......M1      
+                    .  * dm1/  .             .  \dn0*   .     
+                    .   / *     .            .    *  \   .    
+                   .  /      *   .          .   *      \  .   
+                   ./dm0        * .         . *       dn1\ .  
+                  M0...............N1      M0...............N1
             */
-            const double& m_fwd_x = m_fwd.get_x();
-            const double& m_fwd_y = m_fwd.get_y();
-            const double& n_fwd_x = (n->get_fwd()).get_x();
-            const double& n_fwd_y = (n->get_fwd()).get_y();
-            const double& n_fwd_cross_01 = n->get_fwd_cross_01();
-            const double det = (-m_fwd_y * n_fwd_x) + ( m_fwd_x * n_fwd_y);
-            if( fabs(det) > np02_shape::m_tiny_ratio){
-                nr_xy.set_x((( n_fwd_x * m_fwd_cross_01 ) - 
-                             ( m_fwd_x * n_fwd_cross_01 ))/det );
-                nr_xy.set_y((( n_fwd_y * m_fwd_cross_01 ) - 
-                             ( m_fwd_y * n_fwd_cross_01 ))/det );
+            const double dn1 = -fabs(cross_m0n1m1/len_m);
+            const double dm1 = -fabs(cross_n1m1n0/len_n);
+            const double dn0 = -fabs(cross_m1n0m0/len_m);
+            const double dm0 = -fabs(cross_n0m0n1/len_n);
+    
+            /* chose shortest abs distance to any */
+            double d_ctr = dn1;
+            if(dm1 > d_ctr){d_ctr = dm1;}
+            if(dn0 > d_ctr){d_ctr = dn0;}
+            if(dn1 > d_ctr){d_ctr = dn1;}
+            const double dd = d_ctr - (mhw + nhw);
+    
+            if(dd < d){
+                d = dd; 
+                nr_xy = p;
+                oth_nr_xy = p;
                 }
-            else{
-                /* take the average of all endpoints */
-                nr_xy.set_x((xm0 + xm1 + xn0 + xn1)/4.0 );
-                nr_xy.set_y((ym0 + ym1 + yn0 + yn1)/4.0 );
-                }
-            oth_nr_xy = nr_xy;
             }
         }
     }
@@ -5211,25 +5643,31 @@ if(AA_SHOULD_RUN_XDBG(CF01_AA_DEBUG_LEVEL_1)){
     const double near_xy_err = nr_xy.get_distance_to(near_xy2);
     const double line_seg_near_xy_err =
         oth_nr_xy.get_distance_to(line_seg_near_xy2);
+    const double max_allowed_err = ( 2 * d2_err_estimate ) +
+        ( ( fabs(d) + fabs(d2) )*np02_shape::m_small_ratio );
 
     if( d > 0.0 ){
-        /*
-        if(fabs(d - d2) >= (2 * d2_err_estimate)){
-            std::cout << "fabs(d - d2) >= (2 * d2_err_estimate)\n";
-            std::cout << "d = " << d << "\n";
-            std::cout << "d2 = " << d2 << "\n";
-            std::cout << "d2_err_estimate = " << d2_err_estimate << "\n";
-            std::cout << "nr_xy = " << nr_xy.get_x() << "," << nr_xy.get_y() << "\n";
-            std::cout << "near_xy2 = " << near_xy2.get_x() << "," << near_xy2.get_y() << "\n";
-            std::cout << "oth_nr_xy = " << oth_nr_xy.get_x() << "," << oth_nr_xy.get_y() << "\n";
-            std::cout << "line_seg_near_xy2 = " << line_seg_near_xy2.get_x()
-                << "," << line_seg_near_xy2.get_y() << "\n";
-            }
-        */
 
-        AA_XDBG_ASSERT(fabs(d - d2) < (2 * d2_err_estimate),CF01_AA_DEBUG_LEVEL_1 );
-        AA_XDBG_ASSERT(near_xy_err < (2 * d2_err_estimate),CF01_AA_DEBUG_LEVEL_1 );
-        AA_XDBG_ASSERT(line_seg_near_xy_err < (2 * d2_err_estimate),CF01_AA_DEBUG_LEVEL_1 );
+        if(fabs(d - d2) > max_allowed_err){
+            static int printf_count = 0;
+            if( printf_count < 50 ){
+                ++printf_count;
+                std::cout << "fabs(d - d2) > (2 * d2_err_estimate)\n";
+                std::cout << "d = " << d << "\n";
+                std::cout << "d2 = " << d2 << "\n";
+                std::cout << "d2_err_estimate = " << d2_err_estimate << "\n";
+                std::cout << "max_allowed_err = " << max_allowed_err << "\n";
+                std::cout << "nr_xy = " << nr_xy.get_x() << "," << nr_xy.get_y() << "\n";
+                std::cout << "near_xy2 = " << near_xy2.get_x() << "," << near_xy2.get_y() << "\n";
+                std::cout << "oth_nr_xy = " << oth_nr_xy.get_x() << "," << oth_nr_xy.get_y() << "\n";
+                std::cout << "line_seg_near_xy2 = " << line_seg_near_xy2.get_x()
+                    << "," << line_seg_near_xy2.get_y() << "\n";
+                }
+            }
+
+        AA_XDBG_ASSERT(fabs(d - d2) <= max_allowed_err,CF01_AA_DEBUG_LEVEL_1 );
+        AA_XDBG_ASSERT(near_xy_err <= max_allowed_err,CF01_AA_DEBUG_LEVEL_1 );
+        AA_XDBG_ASSERT(line_seg_near_xy_err <= max_allowed_err,CF01_AA_DEBUG_LEVEL_1 );
         }
     }
 
@@ -5426,6 +5864,167 @@ AUTO_ASSERT( fabs( m_p_0.get_dsq_to( m_p_1 ) - p0.get_dsq_to( p1 ) )
     <= m_small_ratio * ( m_p_0.get_dsq_to( m_p_1 ) + p0.get_dsq_to( p1 ) ) );
 init(p0, p1, m_width);
 AA_DECR_CALL_DEPTH();
+}
+
+size_t np02_line_seg::seg_seg_centerline_intersect(const np02_line_seg *n,
+    np02_xy *xy_intsct_0, np02_xy *xy_intsct_1) const{
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+assert( NULL != n );
+size_t intsct_count = 0;
+/*
+Solve
+[  -a.fwd.y     a.fwd.x  ][ intsct.x ]  =  [ a.fwd_cross_01 ] 
+[  -b.fwd.y     b.fwd.x  ][ intsct.y ]     [ b.fwd_cross_01 ] 
+
+det= a.fwd.x*b.fwd.y - a.fwd.y*b.fwd.x
+
+[ intsct.x ]  =  (1/det)   [   b.fwd.x   -a.fwd.x  ][ a.fwd_cross_01 ] 
+[ intsct.y ]               [   b.fwd.y   -a.fwd.y  ][ b.fwd_cross_01 ] 
+*/
+const double det = ( m_fwd.get_x() * (n->m_fwd).get_y() ) -
+                   ( m_fwd.get_y() * (n->m_fwd).get_x() );
+if( fabs(det) > np02_shape::m_small_ratio ){
+    const np02_xy p( ( ((n->m_fwd).get_x() * m_fwd_cross_01) - 
+                       (m_fwd.get_x() * (n->m_fwd_cross_01)) )/det,
+                     ( ((n->m_fwd).get_y() * m_fwd_cross_01) - 
+                       (m_fwd.get_y() * (n->m_fwd_cross_01)) )/det );
+    const double fwd_dot_p = m_fwd.dot(p);
+    const double n_fwd_dot_p = (n->m_fwd).dot(p);
+    if( ( m_fwd_dot_0 <= fwd_dot_p ) &&
+        ( fwd_dot_p <= m_fwd_dot_1 ) &&
+        ( n->m_fwd_dot_0 <= n_fwd_dot_p ) &&
+        ( n_fwd_dot_p <= n->m_fwd_dot_1 ) ){
+        intsct_count = 1;
+        if( NULL != xy_intsct_0 ){
+            *xy_intsct_0 = p;
+            }
+        }
+    }
+else{
+    /* parallel */
+    typedef std::pair<double, np02_xy> dist_xy;
+    dist_xy dist_xy_array[4];
+    int g = 0;
+    for(g = 0; g < 4; ++g) {
+        dist_xy *dstxy = &(dist_xy_array[g]);
+        switch( g ){
+            default:
+            case 0:
+                dstxy->first = fabs(get_distance_from_xy_hw(n->m_p_0,0.0, NULL));
+                dstxy->second = n->m_p_0;
+                break;
+            case 1:
+                dstxy->first = fabs(get_distance_from_xy_hw(n->m_p_1,0.0, NULL));
+                dstxy->second = n->m_p_1;
+                break;
+            case 2:
+                dstxy->first = fabs(n->get_distance_from_xy_hw(m_p_0,0.0, NULL));
+                dstxy->second = m_p_0;
+                break;
+            case 3:
+                dstxy->first = fabs(n->get_distance_from_xy_hw(m_p_1,0.0, NULL));
+                dstxy->second = m_p_1;
+                break;   
+            }
+        }
+    std::sort(&(dist_xy_array[0]), &(dist_xy_array[4]) );
+    const dist_xy& dstxy0 = dist_xy_array[0];
+    if( dstxy0.first < np02_shape::m_little_ratio ){
+        ++intsct_count;
+        if( NULL != xy_intsct_0 ){
+            *xy_intsct_0 = dstxy0.second;
+            }
+
+        const dist_xy& dstxy1 = dist_xy_array[1];
+        if( dstxy1.first < np02_shape::m_little_ratio ){
+            ++intsct_count;
+            if( NULL != xy_intsct_1 ){
+                *xy_intsct_1 = dstxy1.second;
+                }
+            }
+        }
+    }
+
+AUTO_ASSERT( 0 == verify_data_seg_seg_centerline_intersect_result( n,
+    xy_intsct_0, xy_intsct_1, intsct_count,
+    AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
+AA_DECR_CALL_DEPTH();
+return intsct_count;
+}
+
+int np02_line_seg::verify_data_seg_seg_centerline_intersect_result(
+    const np02_line_seg *n, np02_xy *xy_intsct_0, np02_xy *xy_intsct_1,
+    const size_t& intsct_count, char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+int err_cnt = 0;
+
+
+const double seg_len = (get_fwd_dot_1()) - (get_fwd_dot_0());
+const double n_seg_len = (n->get_fwd_dot_1()) - (n->get_fwd_dot_0());
+const double len_sum = seg_len + n_seg_len;
+const double max_d_err = ( len_sum > 1.0 ) ? 
+    ( len_sum * m_small_ratio ) : m_small_ratio;
+
+if( ( intsct_count > 0 ) && ( NULL != xy_intsct_0 ) ){
+
+    const double d0_from_seg_0 = get_distance_from_xy_hw(
+        *xy_intsct_0, 0.0, NULL );
+    if( fabs(d0_from_seg_0) > max_d_err ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "d0from_seg_0=%g != 0.0\n", d0_from_seg_0 ); 
+        }
+
+    const double d0_from_seg_1 = n->get_distance_from_xy_hw(
+        *xy_intsct_0, 0.0, NULL );
+    if( fabs(d0_from_seg_1) > max_d_err ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "d0_from_seg_1=%g != 0.0\n", d0_from_seg_1 ); 
+        }
+    }
+
+if( ( intsct_count > 1 ) && ( NULL != xy_intsct_1 ) ){
+
+    const double d0_from_seg_0 = get_distance_from_xy_hw(
+        *xy_intsct_0, 0.0, NULL );
+    if( fabs(d0_from_seg_0) > max_d_err ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "d0from_seg_0=%g != 0.0\n", d0_from_seg_0 ); 
+        }
+
+    const double d0_from_seg_1 = n->get_distance_from_xy_hw(
+        *xy_intsct_0, 0.0, NULL );
+    if( fabs(d0_from_seg_1) > max_d_err ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "d0_from_seg_1=%g != 0.0\n", d0_from_seg_1 ); 
+        }
+    }
+
+if( err_cnt > 0 ){
+    const np02_xy& seg1_p0 = n->get_p_0();
+    const np02_xy& seg1_p1 = n->get_p_1();
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "verify_data_arc_seg_centerline_intersect_result("
+        " seg0_p0=[%g,%g], seg0_p1=[%g,%g],"
+        " seg1_p0=[%g,%g], seg1_p1=[%g,%g],"
+        " xy_intsct_0=[%g,%g], xy_intsct_1=[%g,%g], intsct_count=%i\n",
+        m_p_0.get_x(), m_p_0.get_y(), m_p_1.get_x(), m_p_1.get_y(), 
+        seg1_p0.get_x(), seg1_p0.get_y(), seg1_p1.get_x(), seg1_p1.get_y(),
+        ( NULL == xy_intsct_0 ) ? 0.0 : xy_intsct_0->get_x(),
+        ( NULL == xy_intsct_0 ) ? 0.0 : xy_intsct_0->get_y(),
+        ( NULL == xy_intsct_1 ) ? 0.0 : xy_intsct_1->get_x(),
+        ( NULL == xy_intsct_1 ) ? 0.0 : xy_intsct_1->get_y(),
+        intsct_count );
+    }
+
+AA_DECR_CALL_DEPTH();
+return err_cnt;
 }
 
 uint64_t np02_line_seg::hash( const uint64_t& h_in ) const{
@@ -7824,6 +8423,7 @@ for(i = 0; i < m_alloc_loc_grid_vec.size(); ++i){
 return err_cnt;
 }
 
+
 int np02_shape_test::run_shape_test(const int& shape_test_number,const int&
     shape_test_iteration_count, const int& shape_test_rand_seed){
 np02_shape_test t;
@@ -7836,8 +8436,11 @@ return error_code;
 
 np02_shape_test::np02_shape_test(): m_shape_test_number(1),
     m_shape_test_iteration_count(1), m_shape_test_rand_seed(1),
-    m_iteration(0), m_rand_uint32(4294967291ul)
-{}
+    m_iteration(0), m_rand_uint32(4294967291ul), m_temp_err_msg_pos(0),
+    m_test_err_msg_pos(0){
+memset( m_temp_err_msg, 0, sizeof( m_temp_err_msg ) );
+memset( m_test_err_msg, 0, sizeof( m_test_err_msg ) );
+}
 
 np02_shape_test::~np02_shape_test(){}
 
@@ -8107,6 +8710,178 @@ if(NULL != shp_alloc){
     }
 }
 
+void np02_shape_test::draw_debug_shapes( const bmp_debug_file_params& p){
+
+if( NULL != p.m_bmp_file ){
+    size_t i;
+    size_t j;
+    std::ostringstream debug_ss;
+
+    std::vector<np02_bmp_color> color_vec;
+    if(NULL != p.m_color_vec){
+        for( i = 0; i < p.m_color_vec->size(); ++i){
+            np02_bmp_color color = p.m_color_vec->at(i);
+            if(p.m_err_xy_found){
+                color.m_red /= 4;
+                color.m_green /= 4;
+                color.m_blue /= 4;
+                }
+            color_vec.push_back(color);
+            }        
+        }
+
+    if( ( NULL != p.m_shapes ) && ( color_vec.size() >= p.m_shapes->size() ) ){
+        for( i = 0; i < p.m_shapes->size(); ++i){
+            const np02_shape *shape = p.m_shapes->at(i);
+            if( ( NULL != shape ) && ( p.m_err_shape_a != shape ) &&
+                ( p.m_err_shape_b != shape ) ){
+                np02_bmp_color color = color_vec.at(i);
+                color.m_blend = true;
+                shape->write_bmp_file(p.m_xy_min, p.m_pixel_num, color, p.m_bmp_file);
+                }
+            }
+        }
+    if( NULL != p.m_err_shape_a ){
+        np02_bmp_color color_a = np02_bmp_color::red();
+        color_a.m_blend = true;
+        p.m_err_shape_a->write_bmp_file(p.m_xy_min, p.m_pixel_num, color_a, p.m_bmp_file);
+        }
+    if( NULL != p.m_err_shape_b ){
+        np02_bmp_color color_b = np02_bmp_color::blue();
+        color_b.m_blend = true;
+        p.m_err_shape_b->write_bmp_file(p.m_xy_min, p.m_pixel_num, color_b, p.m_bmp_file);
+        }
+
+    if( ( NULL != p.m_shapes ) &&
+        ( p.m_draw_overlap_circle || p.m_draw_connecting_line ) ){
+        for( i = 0; i < p.m_shapes->size(); ++i){
+            const np02_shape *shape_i = p.m_shapes->at(i);
+            for( j = i+1; j < p.m_shapes->size(); ++j){
+                const np02_shape *shape_j = p.m_shapes->at(j);
+                np02_xy xy_a, xy_b;
+        
+                const double d = shape_i->get_distance_from_shape(shape_j,
+                    &xy_a, &xy_b );
+        
+                const int32_t a_ii = static_cast<int32_t>(
+                    (xy_a.get_x() - p.m_xy_min.get_x()) * p.m_pixel_num);
+                const int32_t a_jj = static_cast<int32_t>(
+                    (xy_a.get_y() - p.m_xy_min.get_y()) * p.m_pixel_num);
+                const int32_t b_ii = static_cast<int32_t>(
+                    (xy_b.get_x() - p.m_xy_min.get_x()) * p.m_pixel_num);
+                const int32_t b_jj = static_cast<int32_t>(
+                    (xy_b.get_y() - p.m_xy_min.get_y()) * p.m_pixel_num);
+    
+                /* dark red circle for overlap*/
+                if( p.m_draw_overlap_circle && ( d < 0.0 ) ){
+                    np02_xy xy_ab_ave( (xy_a.get_x() + xy_b.get_x())/2.0,
+                        (xy_a.get_y() + xy_b.get_y())/2.0 );
+                    const double ii_ctr =
+                        ( xy_ab_ave.get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num;
+                    const double jj_ctr =
+                        ( xy_ab_ave.get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num;
+                    const double rr = fabs(d) * p.m_pixel_num;
+        
+                    p.m_bmp_file->draw_circle(ii_ctr,jj_ctr,rr,np02_bmp_color(64,0,0, true));
+                    }
+    
+                /* line connecting nearby shapes*/
+                if( p.m_draw_connecting_line &&
+                    (fabs(d) < (1.25 * p.m_basic_length)) ){
+                    p.m_bmp_file->draw_line(a_ii, a_jj, b_ii, b_jj,
+                        np02_bmp_color(255,255,255,true));
+                    }
+                }
+            }
+        }
+
+    if(p.m_err_xy_found){
+        debug_ss << __FILE__ << "[" << __LINE__ << "] "
+            << "shape error  itr=" << m_iteration
+            << "  drawing=" << p.m_footer << "/" << p.m_header;
+
+        if( ( NULL != p.m_err_xy_a ) && ( NULL != p.m_err_xy_b ) ){
+            const np02_xy text_pos((p.m_err_xy_a->get_x() + p.m_err_xy_b->get_x())/2.0,
+                                       (p.m_err_xy_a->get_y() + p.m_err_xy_b->get_y())/2.0);
+            const double d_err_ab = p.m_err_xy_a->get_distance_to(*p.m_err_xy_b);
+            double hh = d_err_ab * p.m_pixel_num;
+            if(hh < 10){ hh = 10.0; }
+            const double ii_text =
+                ( text_pos.get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num;
+            const double jj_text =
+                ( text_pos.get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num;
+            debug_ss << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
+                << "  A(" << p.m_err_xy_a->get_x() << "," << p.m_err_xy_a->get_y() << ")"
+                << "  B(" << p.m_err_xy_b->get_x() << "," << p.m_err_xy_b->get_y() << ")"
+                << "  pixel(" << ii_text << "," << jj_text << ")\n";
+
+            p.m_bmp_file->draw_text("Error", ii_text, jj_text, hh, 15.0, np02_bmp_color::white());
+            }
+
+        debug_ss << "SHAPE_A:\n";
+        if( NULL == p.m_err_shape_a ) {
+            debug_ss << "NULL\n";
+            }
+        else{
+            p.m_err_shape_a->ostream_output( debug_ss );
+            }
+        debug_ss << "SHAPE_B:\n";
+        if( NULL == p.m_err_shape_b ) {
+            debug_ss << "NULL\n";
+            }
+        else{
+            p.m_err_shape_b->ostream_output( debug_ss );
+            }
+
+        if( NULL != p.m_err_xy_a ){
+            const double err_ii_a =
+                ( p.m_err_xy_a->get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num;
+            const double err_jj_a =
+                ( p.m_err_xy_a->get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num;
+            p.m_bmp_file->draw_cross( err_ii_a, err_jj_a, 9, np02_bmp_color::yellow() );
+            }
+
+        if( NULL != p.m_err_xy_b ){
+            const double err_ii_b =
+                ( p.m_err_xy_b->get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num;
+            const double err_jj_b =
+                ( p.m_err_xy_b->get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num;
+            p.m_bmp_file->draw_x( err_ii_b, err_jj_b, 7, np02_bmp_color::silver() );
+            }
+        }
+
+    p.m_bmp_file->draw_text(p.m_footer.c_str(), 25.0, (p.m_bmp_file->get_height_px())-75.0,
+        50.0, 0.0, np02_bmp_color::gray());
+    p.m_bmp_file->draw_text(p.m_header.c_str(), 25.0, 25.0, 50.0, 0.0,
+        np02_bmp_color::gray());
+
+    if( NULL != p.m_debug_str_out){
+        p.m_debug_str_out->append( debug_ss.str() );
+        }
+    }
+}
+
+void np02_shape_test::print_temp_buf_to_test_buf(
+    const char *filename, const int line_num ){
+/* copy to test buffer */
+np02_snprintf(&(m_test_err_msg[0]), TEST_ERR_MSG_CAPACITY, &m_test_err_msg_pos,
+    "\n[itr=%i]  %s[%i]\n%s\n", m_iteration, filename, line_num,
+    &(m_temp_err_msg[0])); 
+
+/* clear temp buffer */
+memset( m_temp_err_msg, 0, sizeof( m_temp_err_msg ) );
+m_temp_err_msg_pos = 0;
+}
+
+void np02_shape_test::print_and_clear_test_buf(){
+/* print test buffer */
+std::cout << &(m_test_err_msg[0]);
+
+/* clear test buffer */
+memset( m_test_err_msg, 0, sizeof( m_test_err_msg ) );
+m_test_err_msg_pos = 0;
+}
+
 int np02_shape_test::execute_test_1(){
 AA_INCR_CALL_DEPTH();
 int err_cnt = 0;
@@ -8124,7 +8899,10 @@ for(; m_iteration < m_shape_test_iteration_count; ++m_iteration ){
         }
     }
 std::cout << "errors: " << err_cnt << "\n";
-if( err_cnt > 0 ){ std::cout << AA_ERR_BUF(); }
+if( err_cnt > 0 ){ print_and_clear_test_buf(); }
+if( NULL != AA_ERR_BUF_POS_PTR() && *(AA_ERR_BUF_POS_PTR()) > 0 ){ 
+    std::cout << "\n\nAA_ERR_BUF:" << AA_ERR_BUF();
+    }
 AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
@@ -8246,45 +9024,27 @@ bmp_init_params.width_px = 320;
 bmp_init_params.height_px = 320;
 np02_bmp_file bmp_file(bmp_init_params);
 const np02_xy xy_min(-20.0,-20.0);
-size_t i,j;
-for( i = 0; i < shape_vec.size(); ++i){
-    shape_vec.at(i)->write_bmp_file(xy_min, pixel_num, color_vec.at(i), &bmp_file);
-    }
-for( i = 0; i < shape_vec.size(); ++i){
-    const np02_shape *shape_i = shape_vec.at(i);
-    for( j = i+1; j < shape_vec.size(); ++j){
-        const np02_shape *shape_j = shape_vec.at(j);
-        np02_xy xy_a, xy_b;
-        const double d = shape_i->get_distance_from_shape(shape_j,
-            &xy_a, &xy_b );
-        const int32_t a_ii = static_cast<int32_t>(
-            (xy_a.get_x() - xy_min.get_x()) * pixel_num);
-        const int32_t a_jj = static_cast<int32_t>(
-            (xy_a.get_y() - xy_min.get_y()) * pixel_num);
-        const int32_t b_ii = static_cast<int32_t>(
-            (xy_b.get_x() - xy_min.get_x()) * pixel_num);
-        const int32_t b_jj = static_cast<int32_t>(
-            (xy_b.get_y() - xy_min.get_y()) * pixel_num);
 
-        /* dark red circle for overlap*/
-        if( d < 0.0 ){
-            np02_xy xy_ab_ave( (xy_a.get_x() + xy_b.get_x())/2.0,
-                (xy_a.get_y() + xy_b.get_y())/2.0 );
-            const double ii_ctr =
-                ( xy_ab_ave.get_x() - xy_min.get_x() ) * pixel_num;
-            const double jj_ctr =
-                ( xy_ab_ave.get_y() - xy_min.get_y() ) * pixel_num;
-            const double rr = fabs(d) * pixel_num;
+bmp_debug_file_params bmp_file_p;
+bmp_file_p.m_bmp_file = &bmp_file;
+bmp_file_p.m_header = "shape_test_0.bmp";
+bmp_file_p.m_footer.erase();
+bmp_file_p.m_xy_min = xy_min; 
+bmp_file_p.m_pixel_num = pixel_num;
+bmp_file_p.m_basic_length = 40.0;
+bmp_file_p.m_err_xy_found = false;
+bmp_file_p.m_draw_overlap_circle = true;
+bmp_file_p.m_draw_connecting_line = true;
+bmp_file_p.m_shapes = &shape_vec;
+bmp_file_p.m_color_vec = &color_vec;
+bmp_file_p.m_err_xy_a = NULL;
+bmp_file_p.m_err_xy_b = NULL;
+bmp_file_p.m_err_shape_a = NULL;
+bmp_file_p.m_err_shape_b = NULL;
+bmp_file_p.m_debug_str_out = NULL;
+draw_debug_shapes( bmp_file_p );
 
-            bmp_file.draw_circle(ii_ctr,jj_ctr,rr,np02_bmp_color(64,0,0, true));
-            }
-
-        /* line connecting nearby shapes*/
-        bmp_file.draw_line(a_ii, a_jj, b_ii, b_jj,
-            np02_bmp_color(255,255,255,true));
-        }
-    }
-bmp_file.write_file( "shape_test_0.bmp" );
+bmp_file.write_file( bmp_file_p.m_header.c_str() );
 
 AA_DECR_CALL_DEPTH();
 return err_cnt;
@@ -8315,7 +9075,6 @@ size_t i,j;
 np02_shape_vec shape_vec;
 std::vector<np02_bmp_color> color_vec;
 np02_shp_alloc *shp_alloc = NULL;
-
 advance_rand();
 int ww = 3 + (get_rand_int() % 6);
 CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( 0, ww ) );
@@ -8337,9 +9096,12 @@ switch(get_rand_int() % 7){
 advance_rand();
 if(50 > (get_rand_int() % 100)){
     shp_alloc = new np02_shp_alloc();
-    e = shp_alloc->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+    e = shp_alloc->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+    err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
     }
 make_rand_shapes( shp_alloc, ww, hh, basic_length, &shape_vec, &color_vec );
 CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( cf01_obj_hash( cf01_obj_hash( 
@@ -8366,15 +9128,23 @@ const np02_shape *err_shape_b = NULL;
 
 for( i = 0; i < shape_vec.size(); ++i){
     assert( NULL != shape_vec.at(i) );
-    e = shape_vec.at(i)->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+    e = shape_vec.at(i)->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     err_cnt += e;
     if((e > 0) && !err_xy_found ){
         err_xy_found = true;
         should_write_file = true;
         shape_vec.at(i)->get_bb(&err_xy_a, &err_xy_b );
         err_shape_a = shape_vec.at(i);
+        }
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ );
+        if(!err_xy_found ){
+            err_xy_found = true;
+            should_write_file = true;
+            shape_vec.at(i)->get_bb(&err_xy_a, &err_xy_b );
+            err_shape_a = shape_vec.at(i);
+            }
         }
     }
 
@@ -8386,17 +9156,19 @@ for( i = 0; i < shape_vec.size(); ++i){
         const double d = shape_i->get_distance_from_shape(shape_j,
             &xy_a, &xy_b );
         e = np02_shape::verify_distance_from_shape_result(
-            shape_i, shape_j, xy_a, xy_b, d, AA_ERR_BUF(),
-            AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-        AA_ALWAYS_ASSERT(0 == e);
+            shape_i, shape_j, xy_a, xy_b, d, m_temp_err_msg,
+            TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
         err_cnt += e;
-        if((e > 0) && !err_xy_found ){
-            err_xy_found = true;
-            should_write_file = true;
-            err_xy_a=xy_a;
-            err_xy_b=xy_b;
-            err_shape_a = shape_i;
-            err_shape_a = shape_j;
+        if( e > 0 ){
+            print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+            if( !err_xy_found ){
+                err_xy_found = true;
+                should_write_file = true;
+                err_xy_a=xy_a;
+                err_xy_b=xy_b;
+                err_shape_a = shape_i;
+                err_shape_b = shape_j;
+                }
             }
         }
     }
@@ -8408,95 +9180,57 @@ if(should_write_file){
     bmp_init_params.width_px = ww * pixels_per_basic_length;
     bmp_init_params.height_px = hh * pixels_per_basic_length;
     np02_bmp_file bmp_file(bmp_init_params);
-    char bmp_file_name[255];
-    sprintf(&(bmp_file_name[0]), "shape_test1_%i.bmp", m_iteration );
 
-    for( i = 0; i < shape_vec.size(); ++i){
-        shape_vec.at(i)->write_bmp_file(xy_min, pixel_num,
-            color_vec.at(i), &bmp_file);
-        }
+    char bmp_file_name_buf[255];
+    sprintf(&(bmp_file_name_buf[0]), "shape_test1_%i.bmp", m_iteration );
+    std::string bmp_file_name( bmp_file_name_buf ); 
+    const std::string prog_str = np02_test_main::get_prog_name() +
+        std::string(" ") + np02_test_main::get_version_str();
 
-    for( i = 0; i < shape_vec.size(); ++i){
-        const np02_shape *shape_i = shape_vec.at(i);
-        for( j = i+1; j < shape_vec.size(); ++j){
-            const np02_shape *shape_j = shape_vec.at(j);
-            np02_xy xy_a, xy_b;
-    
-            const double d = shape_i->get_distance_from_shape(shape_j,
-                &xy_a, &xy_b );
-    
-            const int32_t a_ii = static_cast<int32_t>(
-                (xy_a.get_x() - xy_min.get_x()) * pixel_num);
-            const int32_t a_jj = static_cast<int32_t>(
-                (xy_a.get_y() - xy_min.get_y()) * pixel_num);
-            const int32_t b_ii = static_cast<int32_t>(
-                (xy_b.get_x() - xy_min.get_x()) * pixel_num);
-            const int32_t b_jj = static_cast<int32_t>(
-                (xy_b.get_y() - xy_min.get_y()) * pixel_num);
-
-            /* dark red circle for overlap*/
-            if( d < 0.0 ){
-                np02_xy xy_ab_ave( (xy_a.get_x() + xy_b.get_x())/2.0,
-                    (xy_a.get_y() + xy_b.get_y())/2.0 );
-                const double ii_ctr =
-                    ( xy_ab_ave.get_x() - xy_min.get_x() ) * pixel_num;
-                const double jj_ctr =
-                    ( xy_ab_ave.get_y() - xy_min.get_y() ) * pixel_num;
-                const double rr = fabs(d) * pixel_num;
-    
-                bmp_file.draw_circle(ii_ctr,jj_ctr,rr,np02_bmp_color(64,0,0, true));
-                }
-
-            /* line connecting nearby shapes*/
-            if( fabs(d) < (1.25 * basic_length) ){
-                bmp_file.draw_line(a_ii, a_jj, b_ii, b_jj,
-                    np02_bmp_color(255,255,255,true));
-                }
-            }
-        }
+    std::string debug_str_out;
+    bmp_debug_file_params bmp_file_p;
+    bmp_file_p.m_bmp_file = &bmp_file;
+    bmp_file_p.m_header = bmp_file_name;
+    bmp_file_p.m_footer = prog_str;
+    bmp_file_p.m_xy_min = xy_min; 
+    bmp_file_p.m_pixel_num = pixel_num;
+    bmp_file_p.m_basic_length = basic_length;
+    bmp_file_p.m_err_xy_found = err_xy_found;
+    bmp_file_p.m_draw_overlap_circle = true;
+    bmp_file_p.m_draw_connecting_line = true;
+    bmp_file_p.m_shapes = &shape_vec;
+    bmp_file_p.m_color_vec = &color_vec;
+    bmp_file_p.m_err_xy_a = &err_xy_a;
+    bmp_file_p.m_err_xy_b = &err_xy_b;
+    bmp_file_p.m_err_shape_a = err_shape_a;
+    bmp_file_p.m_err_shape_b = err_shape_b;
+    bmp_file_p.m_debug_str_out = &debug_str_out;
+    draw_debug_shapes( bmp_file_p );
+    bmp_file.write_file( &(bmp_file_name[0]) );
 
     if(err_xy_found){
-        const np02_xy text_pos((err_xy_a.get_x() + err_xy_b.get_x())/2.0,
-                                   (err_xy_a.get_y() + err_xy_b.get_y())/2.0);
-        const double d_err_ab = err_xy_a.get_distance_to(err_xy_b);
-        double hh = d_err_ab * pixel_num;
-        if(hh < 10){ hh = 10.0; }
-        const double ii_text =
-            ( text_pos.get_x() - xy_min.get_x() ) * pixel_num;
-        const double jj_text =
-            ( text_pos.get_y() - xy_min.get_y() ) * pixel_num;
-        std::cout << __FILE__ << "[" << __LINE__ << "] "
-            << "shape error  itr=" << m_iteration
-            << "  drawing=" << bmp_file_name 
-            << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
-            << "  A(" << err_xy_a.get_x() << "," << err_xy_a.get_y() << ")"
-            << "  B(" << err_xy_b.get_x() << "," << err_xy_b.get_y() << ")"
-            << "  pixel(" << ii_text << "," << jj_text << ")\n";
-        std::cout << "SHAPE_A:\n";
-        if( NULL == err_shape_a ) {
-            std::cout << "NULL\n";
-            }
-        else{
-            err_shape_a->ostream_output( std::cout );
-            }
-        std::cout << "SHAPE_B:\n";
-        if( NULL == err_shape_b ) {
-            std::cout << "NULL\n";
-            }
-        else{
-            err_shape_b->ostream_output( std::cout );
-            }
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+            "%s", debug_str_out.c_str()); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
 
-        bmp_file.draw_text("Error", ii_text, jj_text, hh, 15.0, np02_bmp_color::white());
+        char focus_bmp_file_name_buf[255];
+        sprintf(&(focus_bmp_file_name_buf[0]), "shape_test1_%i_focus.bmp", m_iteration );
+        std::string focus_bmp_file_name( focus_bmp_file_name_buf ); 
+
+        np02_bmp_file_init_params focus_bmp_init_params;
+        focus_bmp_init_params.width_px = ww * pixels_per_basic_length;
+        focus_bmp_init_params.height_px = hh * pixels_per_basic_length;
+        np02_bmp_file focus_bmp_file(focus_bmp_init_params);
+
+        bmp_debug_file_params focus_bmp_file_p = bmp_file_p;
+        focus_bmp_file_p.m_bmp_file = &focus_bmp_file;
+        focus_bmp_file_p.m_header = focus_bmp_file_name;
+        focus_bmp_file_p.m_shapes = NULL;
+        focus_bmp_file_p.m_color_vec = NULL;
+        draw_debug_shapes( focus_bmp_file_p );
+
+        focus_bmp_file.write_file( &(focus_bmp_file_name[0]) );
         }
-
-    std::string prog_str = np02_test_main::get_prog_name() + std::string(" ") + np02_test_main::get_version_str();
-    bmp_file.draw_text(prog_str.c_str(), 25.0, bmp_init_params.height_px-75.0,
-        50.0, 0.0, np02_bmp_color::gray());
-    bmp_file.draw_text(&(bmp_file_name[0]), 25.0, 25.0, 50.0, 0.0,
-        np02_bmp_color::gray());
-
-    bmp_file.write_file( &(bmp_file_name[0]) );
     }
 
 CF01_HASH_CONSISTENCY_CHECK( ( ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) +
@@ -8524,7 +9258,7 @@ time_t prev_printf_time = 0;
 for(; m_iteration < m_shape_test_iteration_count; ++m_iteration ){
     /* message */
     time_t now = time(NULL);
-    const time_t printf_time_step = 15;
+    const time_t printf_time_step = 120;
     if( now > ( prev_printf_time + printf_time_step ) ){
         const time_t elapsed_time = now - start_time;
         std::cout << "iteration:" << m_iteration
@@ -8540,7 +9274,10 @@ for(; m_iteration < m_shape_test_iteration_count; ++m_iteration ){
         }
     }
 std::cout << "errors: " << err_cnt << "\n";
-if( err_cnt > 0 ){ std::cout << AA_ERR_BUF(); }
+if( err_cnt > 0 ){ print_and_clear_test_buf(); }
+if( NULL != AA_ERR_BUF_POS_PTR() && *(AA_ERR_BUF_POS_PTR()) > 0 ){ 
+    std::cout << "\n\nAA_ERR_BUF:" << AA_ERR_BUF();
+    }
 AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
@@ -8575,9 +9312,12 @@ switch(get_rand_int() % 7){
     }
 if(50 > (get_rand_int() % 100)){
     shp_alloc = new np02_shp_alloc();
-    e = shp_alloc->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+    e = shp_alloc->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+    err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
     }
 make_rand_shapes( shp_alloc, ww, hh, basic_length, &shape_vec, &color_vec );
 const np02_xy xy_min(0.0,0.0);
@@ -8628,27 +9368,31 @@ np02_loc_grid *loc_grid;
 
 if( NULL != shp_alloc ){
     loc_grid = shp_alloc->alloc_loc_grid();
-    //std::cout << "loc_grid = shp_alloc->alloc_loc_grid()" << "\n";
     }
 else if(50 > (get_rand_int() % 100)){
     loc_grid = new np02_loc_grid();
-    //std::cout << "loc_grid = new np02_loc_grid()" << "\n";
     }
 else{
     loc_grid = &loc_grid_local;
-    //std::cout << "loc_grid = &loc_grid_local" << "\n";
     }
 
-e = loc_grid->verify_data(AA_ERR_BUF(),
-    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-AA_ALWAYS_ASSERT(0 == e);
+e = loc_grid->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+err_cnt += e;
+if( e > 0 ){
+    print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+    }
 
 loc_grid->set_extra_search_d(extra_search_d);
 loc_grid->init_loc_grid(loc_grid_dim);
 
-e = loc_grid->verify_data(AA_ERR_BUF(),
-    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-AA_ALWAYS_ASSERT(0 == e);
+e = loc_grid->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+err_cnt += e;
+if( e > 0 ){
+    print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+    }
+
 CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
     cf01_obj_hash( np02_shape_vec_hash( shape_vec ),
     ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) ) );
@@ -8662,29 +9406,33 @@ const np02_shape *err_shape_b = NULL;
 np02_shape *shape = NULL;
 for( i = 0; i < shape_vec.size(); ++i){
     shape = shape_vec.at(i);
-    e = shape->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+    e = shape->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     err_cnt += e;
-    if((e > 0) && !err_xy_found ){
-        err_xy_found = true;
-        should_write_file = true;
-        shape->get_bb(&err_xy_a, &err_xy_b );
-        err_shape_a = shape;
-        err_shape_b = NULL;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        if(!err_xy_found ){
+            err_xy_found = true;
+            should_write_file = true;
+            shape->get_bb(&err_xy_a, &err_xy_b );
+            err_shape_a = shape;
+            err_shape_b = NULL;
+            }
         }
 
     loc_grid->insert_shape_in_loc_grid(shape);
     
-    e = shape->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+    e = shape->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     err_cnt += e;
-    if((e > 0) && !err_xy_found ){
-        err_xy_found = true;
-        should_write_file = true;
-        shape->get_bb(&err_xy_a, &err_xy_b );
-        err_shape_a = shape;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        if(!err_xy_found ){
+            err_xy_found = true;
+            should_write_file = true;
+            shape->get_bb(&err_xy_a, &err_xy_b );
+            err_shape_a = shape;
+            }
         }
 
     CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
@@ -8692,10 +9440,14 @@ for( i = 0; i < shape_vec.size(); ++i){
         ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) ) );
     }
 
-e = loc_grid->verify_data(AA_ERR_BUF(),
-    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+e = loc_grid->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
 AA_ALWAYS_ASSERT(0 == e);
 err_cnt += e;
+if( e > 0 ){
+    print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+    }
+
 CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
     cf01_obj_hash( np02_shape_vec_hash( shape_vec ),
     ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) ) );
@@ -8724,7 +9476,10 @@ for( i = 0; i < shape_vec.size(); ++i){
                         const_cast<np02_shape *>(shape_j));
                 if( (search_itr == local_shapes.end()) || 
                     (shape_j != *search_itr)){
-                    AA_ALWAYS_ASSERT(false);
+                    np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, 
+                        &m_temp_err_msg_pos,
+                        "shape_j not found in local_shapes"); 
+                    print_temp_buf_to_test_buf( __FILE__, __LINE__ );
                     if(!err_xy_found ){
                         err_xy_found = true;
                         should_write_file = true;
@@ -8739,64 +9494,68 @@ for( i = 0; i < shape_vec.size(); ++i){
     local_shapes.clear();
     }
 
+
 if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
     static const double pixels_per_basic_length = 256.0;
     const double pixel_num = pixels_per_basic_length/basic_length;
-    bmp_init_params.width_px = static_cast<int32_t>(ww*pixels_per_basic_length);
-    bmp_init_params.height_px =
-        static_cast<int32_t>(hh * pixels_per_basic_length);
+    bmp_init_params.width_px = ww * pixels_per_basic_length;
+    bmp_init_params.height_px = hh * pixels_per_basic_length;
     np02_bmp_file bmp_file(bmp_init_params);
-    char bmp_file_name[255];
-    sprintf(&(bmp_file_name[0]), "shape_test2_%i.bmp", m_iteration );
-
-    for( i = 0; i < shape_vec.size(); ++i){
-        shape_vec.at(i)->write_bmp_file(xy_min, pixel_num,
-            color_vec.at(i), &bmp_file);
-        }
 
     loc_grid->write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
         &bmp_file);
 
-    if(err_xy_found){
-        const np02_xy text_pos((err_xy_a.get_x() + err_xy_b.get_x())/2.0,
-                                   (err_xy_a.get_y() + err_xy_b.get_y())/2.0);
-        const double d_err_ab = err_xy_a.get_distance_to(err_xy_b);
-        double hh = d_err_ab * pixel_num;
-        if(hh < 10){ hh = 10.0; }
-        const double ii_text =
-            ( text_pos.get_x() - xy_min.get_x() ) * pixel_num;
-        const double jj_text =
-            ( text_pos.get_y() - xy_min.get_y() ) * pixel_num;
-        std::cout << __FILE__ << "[" << __LINE__ << "] "
-            << "shape error  itr=" << m_iteration
-            << "  drawing=" << bmp_file_name 
-            << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
-            << "  pixel(" << ii_text << "," << jj_text << ")\n";
-        std::cout << "SHAPE_A:\n";
-        if( NULL == err_shape_a ) {
-            std::cout << "NULL\n";
-            }
-        else{
-            err_shape_a->ostream_output( std::cout );
-            }
-        std::cout << "SHAPE_B:\n";
-        if( NULL == err_shape_b ) {
-            std::cout << "NULL\n";
-            }
-        else{
-            err_shape_b->ostream_output( std::cout );
-            }
-        bmp_file.draw_text("Error", ii_text, jj_text, hh, 15.0, np02_bmp_color::white());
-        }
+    char bmp_file_name_buf[255];
+    sprintf(&(bmp_file_name_buf[0]), "shape_test2_%i.bmp", m_iteration );
+    std::string bmp_file_name( bmp_file_name_buf ); 
+    const std::string prog_str = np02_test_main::get_prog_name() +
+        std::string(" ") + np02_test_main::get_version_str();
 
-    std::string prog_str = np02_test_main::get_prog_name() + std::string(" ") +
-        np02_test_main::get_version_str();
-    bmp_file.draw_text(prog_str.c_str(), 25.0, bmp_init_params.height_px-75.0,
-        50.0, 0.0, np02_bmp_color::gray());
-    bmp_file.draw_text(&(bmp_file_name[0]), 25.0, 25.0, 50.0, 0.0,
-        np02_bmp_color::gray());
+    std::string debug_str_out;
+    bmp_debug_file_params bmp_file_p;
+    bmp_file_p.m_bmp_file = &bmp_file;
+    bmp_file_p.m_header = bmp_file_name;
+    bmp_file_p.m_footer = prog_str;
+    bmp_file_p.m_xy_min = xy_min; 
+    bmp_file_p.m_pixel_num = pixel_num;
+    bmp_file_p.m_basic_length = basic_length;
+    bmp_file_p.m_err_xy_found = err_xy_found;
+    bmp_file_p.m_draw_overlap_circle = false;
+    bmp_file_p.m_draw_connecting_line = false;
+    bmp_file_p.m_shapes = &shape_vec;
+    bmp_file_p.m_color_vec = &color_vec;
+    bmp_file_p.m_err_xy_a = &err_xy_a;
+    bmp_file_p.m_err_xy_b = &err_xy_b;
+    bmp_file_p.m_err_shape_a = err_shape_a;
+    bmp_file_p.m_err_shape_b = err_shape_b;
+    bmp_file_p.m_debug_str_out = &debug_str_out;
+    draw_debug_shapes( bmp_file_p );
     bmp_file.write_file( &(bmp_file_name[0]) );
+
+    if(err_xy_found){
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+            "%s", debug_str_out.c_str()); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+
+        char focus_bmp_file_name_buf[255];
+        sprintf(&(focus_bmp_file_name_buf[0]), "shape_test2_%i_focus.bmp", m_iteration );
+        std::string focus_bmp_file_name( focus_bmp_file_name_buf ); 
+
+        np02_bmp_file_init_params focus_bmp_init_params;
+        focus_bmp_init_params.width_px = ww * pixels_per_basic_length;
+        focus_bmp_init_params.height_px = hh * pixels_per_basic_length;
+        np02_bmp_file focus_bmp_file(focus_bmp_init_params);
+
+        bmp_debug_file_params focus_bmp_file_p = bmp_file_p;
+        focus_bmp_file_p.m_bmp_file = &focus_bmp_file;
+        focus_bmp_file_p.m_header = focus_bmp_file_name;
+        focus_bmp_file_p.m_shapes = NULL;
+        focus_bmp_file_p.m_color_vec = NULL;
+        draw_debug_shapes( focus_bmp_file_p );
+
+        focus_bmp_file.write_file( &(focus_bmp_file_name[0]) );
+        }
     }
 
 err_xy_found = false;
@@ -8807,13 +9566,20 @@ Move some shapes
 for( i = 0; i < shape_vec.size(); ++i){
     np02_shape *shape_i = shape_vec.at(i);
     local_err_cnt = 0;
-    e = shape_i->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    e = shape_i->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     AA_ALWAYS_ASSERT(0 == e);
     local_err_cnt += e;
-    e = (shape_i->get_loc_grid() == loc_grid)? 0 : 1;
-    AA_ALWAYS_ASSERT(0 == e);
-    local_err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
+
+    if(shape_i->get_loc_grid() != loc_grid){
+        ++local_err_cnt;
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+            "shape_i->get_loc_grid() != loc_grid" ); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
 
     np02_xy shape_i_bb_xy_min, shape_i_bb_xy_max;
     shape_i->get_bb(&shape_i_bb_xy_min, &shape_i_bb_xy_max);
@@ -8852,21 +9618,30 @@ for( i = 0; i < shape_vec.size(); ++i){
             /* rotate, explicitly update locator grid */
             loc_grid->remove_shape_from_loc_grid(shape_i);
 
-            e = shape_i->verify_data(AA_ERR_BUF(),
-                AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-            AA_ALWAYS_ASSERT(0 == e);
+            e = shape_i->verify_data(m_temp_err_msg,
+                TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
             local_err_cnt += e;
-            e = (shape_i->get_loc_grid() == NULL)? 0 : 1;
-            AA_ALWAYS_ASSERT(0 == e);
-            local_err_cnt += e;
+            if( e > 0 ){
+                print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+                }
+
+            if(shape_i->get_loc_grid() != NULL){
+                ++local_err_cnt;
+                np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+                    "shape_i->get_loc_grid() != NULL" ); 
+                print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+                }
+        
 
             shape_i->rotate_no_loc_grid(
                 np02_xy(rot_ctr_x, rot_ctr_y), rot_deg);
 
-            e = shape_i->verify_data(AA_ERR_BUF(),
-                AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-            AA_ALWAYS_ASSERT(0 == e);
+            e = shape_i->verify_data(m_temp_err_msg,
+                TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
             local_err_cnt += e;
+            if( e > 0 ){
+                print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+                }
 
             loc_grid->insert_shape_in_loc_grid(shape_i);
             }
@@ -8878,20 +9653,25 @@ for( i = 0; i < shape_vec.size(); ++i){
             /* translate, explicitly update locator grid */
             loc_grid->remove_shape_from_loc_grid(shape_i);
 
-            e = shape_i->verify_data(AA_ERR_BUF(),
-                AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-            AA_ALWAYS_ASSERT(0 == e);
+            e = shape_i->verify_data(m_temp_err_msg,
+                TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
             local_err_cnt += e;
-            e = (shape_i->get_loc_grid() == NULL)? 0 : 1;
-            AA_ALWAYS_ASSERT(0 == e);
-            local_err_cnt += e;
+            if( e > 0 ){
+                print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+                }
+
+            if(shape_i->get_loc_grid() != NULL){
+                ++local_err_cnt;
+                np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+                    "shape_i->get_loc_grid() != NULL" ); 
+                print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+                }
 
             shape_i->translate_no_loc_grid(
                 np02_xy(translation_dx, translation_dy));
 
-            e = shape_i->verify_data(AA_ERR_BUF(),
-                AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-            AA_ALWAYS_ASSERT(0 == e);
+            e = shape_i->verify_data(m_temp_err_msg,
+                TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
             local_err_cnt += e;
 
             loc_grid->insert_shape_in_loc_grid(shape_i);
@@ -8899,13 +9679,19 @@ for( i = 0; i < shape_vec.size(); ++i){
             break;
         }
 
-    e = shape_i->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+    e = shape_i->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     local_err_cnt += e;
-    e = (shape_i->get_loc_grid() == loc_grid)? 0 : 1;
-    AA_ALWAYS_ASSERT(0 == e);
-    local_err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
+
+    if(shape_i->get_loc_grid() != loc_grid){
+        ++local_err_cnt;
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+            "shape_i->get_loc_grid() != loc_grid" ); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
 
     err_cnt += local_err_cnt;
     if((local_err_cnt > 0) && !err_xy_found ){
@@ -8942,7 +9728,10 @@ for( i = 0; i < shape_vec.size(); ++i){
                         const_cast<np02_shape *>(shape_j));
                 if( (search_itr == local_shapes.end()) || 
                     (shape_j != *search_itr)){
-                    AA_ALWAYS_ASSERT(false);
+                    np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, 
+                        &m_temp_err_msg_pos,
+                        "shape_j not found in local_shapes"); 
+                    print_temp_buf_to_test_buf( __FILE__, __LINE__ );
                     if(!err_xy_found ){
                         err_xy_found = true;
                         should_write_file = true;
@@ -8955,70 +9744,84 @@ for( i = 0; i < shape_vec.size(); ++i){
     local_shapes.clear();
     }
 
+
 if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
-    static const int32_t max_wh_px = 2048;
     static const double pixels_per_basic_length = 256.0;
     const double pixel_num = pixels_per_basic_length/basic_length;
-    bmp_init_params.width_px =
-        static_cast<int32_t>(ww * pixels_per_basic_length);
-    if( bmp_init_params.width_px > max_wh_px ){
-        bmp_init_params.width_px = max_wh_px;
-        }
-    bmp_init_params.height_px =
-        static_cast<int32_t>(hh * pixels_per_basic_length);
-    if( bmp_init_params.height_px > max_wh_px ){
-        bmp_init_params.height_px = max_wh_px;
-        }
+    bmp_init_params.width_px = ww * pixels_per_basic_length;
+    bmp_init_params.height_px = hh * pixels_per_basic_length;
     np02_bmp_file bmp_file(bmp_init_params);
-    char bmp_file_name[255];
-    sprintf(&(bmp_file_name[0]), "shape_test2a_%i.bmp", m_iteration );
-
-    for( i = 0; i < shape_vec.size(); ++i){
-        shape_vec.at(i)->write_bmp_file(xy_min, pixel_num,
-            color_vec.at(i), &bmp_file);
-        }
 
     loc_grid->write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
         &bmp_file);
 
-    if(err_xy_found){
-        const np02_xy text_pos((err_xy_a.get_x() + err_xy_b.get_x())/2.0,
-                                   (err_xy_a.get_y() + err_xy_b.get_y())/2.0);
-        const double d_err_ab = err_xy_a.get_distance_to(err_xy_b);
-        double hh = d_err_ab * pixel_num;
-        if(hh < 10){ hh = 10.0; }
-        const double ii_text =
-            ( text_pos.get_x() - xy_min.get_x() ) * pixel_num;
-        const double jj_text =
-            ( text_pos.get_y() - xy_min.get_y() ) * pixel_num;
-        std::cout << __FILE__ << "[" << __LINE__ << "] "
-            << "shape error  itr=" << m_iteration
-            << "  drawing=" << bmp_file_name 
-            << "  xy(" << text_pos.get_x() << "," << text_pos.get_y() << ")"
-            << "  pixel(" << ii_text << "," << jj_text << ")\n";
-        bmp_file.draw_text("Error", ii_text, jj_text, hh, 15.0, np02_bmp_color::white());
-        }
+    char bmp_file_name_buf[255];
+    sprintf(&(bmp_file_name_buf[0]), "shape_test2a_%i.bmp", m_iteration );
+    std::string bmp_file_name( bmp_file_name_buf ); 
+    const std::string prog_str = np02_test_main::get_prog_name() +
+        std::string(" ") + np02_test_main::get_version_str();
 
-    std::string prog_str = np02_test_main::get_prog_name() + std::string(" ") +
-        np02_test_main::get_version_str();
-    bmp_file.draw_text(prog_str.c_str(), 25.0, bmp_init_params.height_px-75.0,
-        50.0, 0.0, np02_bmp_color::gray());
-    bmp_file.draw_text(&(bmp_file_name[0]), 25.0, 25.0, 50.0, 0.0,
-        np02_bmp_color::gray());
-
+    std::string debug_str_out;
+    bmp_debug_file_params bmp_file_p;
+    bmp_file_p.m_bmp_file = &bmp_file;
+    bmp_file_p.m_header = bmp_file_name;
+    bmp_file_p.m_footer = prog_str;
+    bmp_file_p.m_xy_min = xy_min; 
+    bmp_file_p.m_pixel_num = pixel_num;
+    bmp_file_p.m_basic_length = basic_length;
+    bmp_file_p.m_err_xy_found = err_xy_found;
+    bmp_file_p.m_draw_overlap_circle = false;
+    bmp_file_p.m_draw_connecting_line = false;
+    bmp_file_p.m_shapes = &shape_vec;
+    bmp_file_p.m_color_vec = &color_vec;
+    bmp_file_p.m_err_xy_a = &err_xy_a;
+    bmp_file_p.m_err_xy_b = &err_xy_b;
+    bmp_file_p.m_err_shape_a = err_shape_a;
+    bmp_file_p.m_err_shape_b = err_shape_b;
+    bmp_file_p.m_debug_str_out = &debug_str_out;
+    draw_debug_shapes( bmp_file_p );
     bmp_file.write_file( &(bmp_file_name[0]) );
+
+    if(err_xy_found){
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos,
+            "%s", debug_str_out.c_str()); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+
+        char focus_bmp_file_name_buf[255];
+        sprintf(&(focus_bmp_file_name_buf[0]), "shape_test2a_%i_focus.bmp", m_iteration );
+        std::string focus_bmp_file_name( focus_bmp_file_name_buf ); 
+
+        np02_bmp_file_init_params focus_bmp_init_params;
+        focus_bmp_init_params.width_px = ww * pixels_per_basic_length;
+        focus_bmp_init_params.height_px = hh * pixels_per_basic_length;
+        np02_bmp_file focus_bmp_file(focus_bmp_init_params);
+
+        bmp_debug_file_params focus_bmp_file_p = bmp_file_p;
+        focus_bmp_file_p.m_bmp_file = &focus_bmp_file;
+        focus_bmp_file_p.m_header = focus_bmp_file_name;
+        focus_bmp_file_p.m_shapes = NULL;
+        focus_bmp_file_p.m_color_vec = NULL;
+        draw_debug_shapes( focus_bmp_file_p );
+
+        focus_bmp_file.write_file( &(focus_bmp_file_name[0]) );
+        }
     }
 
-e = loc_grid->verify_data(AA_ERR_BUF(),
-    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-AA_ALWAYS_ASSERT(0 == e);
-err_cnt += e;
-if( NULL != shp_alloc ){
-    e = shp_alloc->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+e = loc_grid->verify_data(m_temp_err_msg,
+    TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     err_cnt += e;
+if( e > 0 ){
+    print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+    }
+
+if( NULL != shp_alloc ){
+    e = shp_alloc->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+    err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
     }
 CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
     cf01_obj_hash( np02_shape_vec_hash( shape_vec ),
@@ -9026,15 +9829,20 @@ CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
 
 free_shapes( shp_alloc, &shape_vec );
 
-e = loc_grid->verify_data(AA_ERR_BUF(),
-    AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-AA_ALWAYS_ASSERT(0 == e);
-err_cnt += e;
-if( NULL != shp_alloc ){
-    e = shp_alloc->verify_data(AA_ERR_BUF(),
-        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
-    AA_ALWAYS_ASSERT(0 == e);
+e = loc_grid->verify_data(m_temp_err_msg,
+    TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
     err_cnt += e;
+if( e > 0 ){
+    print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+    }
+
+if( NULL != shp_alloc ){
+    e = shp_alloc->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+    err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
     }
 CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
     cf01_obj_hash( np02_shape_vec_hash( shape_vec ),

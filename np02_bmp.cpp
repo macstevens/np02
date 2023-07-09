@@ -774,6 +774,28 @@ else {
     }
 }
 
+void np02_bmp_file::draw_cross(const int32_t& i_ctr,const int32_t& j_ctr, 
+    const int32_t& w, const np02_bmp_color& color){
+const int32_t hw = w/2;
+const int32_t i0 = i_ctr - hw;
+const int32_t i1 = i_ctr + hw;
+const int32_t j0 = j_ctr - hw;
+const int32_t j1 = j_ctr + hw;
+draw_line( i0, j_ctr, i1, j_ctr, color);
+draw_line( i_ctr, j0, i_ctr, j1, color);
+}
+
+void np02_bmp_file::draw_x(const int32_t& i_ctr,const int32_t& j_ctr, 
+    const int32_t& w, const np02_bmp_color& color){
+const int32_t hw = w/2;
+const int32_t i0 = i_ctr - hw;
+const int32_t i1 = i_ctr + hw;
+const int32_t j0 = j_ctr - hw;
+const int32_t j1 = j_ctr + hw;
+draw_line( i0, j0, i1, j1, color);
+draw_line( i0, j1, i1, j0, color);
+}
+
 void np02_bmp_file::draw_box(const int32_t& i0,const int32_t& j0, 
         const int32_t& i1, const int32_t& j1, const np02_bmp_color& color){
 const int32_t i_min = get_clamped_i( (i0 < i1) ? i0 : i1 );

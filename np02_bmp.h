@@ -132,6 +132,10 @@ public:
     void draw_pixel(const int32_t& i,const int32_t& j, const np02_bmp_color& color);
     void draw_line(const int32_t& i0,const int32_t& j0, 
         const int32_t& i1,const int32_t& j1, const np02_bmp_color& color);
+    void draw_cross(const int32_t& i_ctr,const int32_t& j_ctr, 
+        const int32_t& w, const np02_bmp_color& color);
+    void draw_x(const int32_t& i_ctr,const int32_t& j_ctr, 
+        const int32_t& w, const np02_bmp_color& color);
     void draw_box(const int32_t& i0,const int32_t& j0, 
         const int32_t& i1,const int32_t& j1, const np02_bmp_color& color);
     void draw_diamond(const int32_t& i_ctr,const int32_t& j_ctr, 

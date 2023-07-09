@@ -1,4 +1,4 @@
-np02 -- Newport Algorithm 02 Library Version 0.0.3
+np02 -- Newport Algorithm 02 Library Version 0.0.4
 
 
 LICENSE
@@ -71,6 +71,432 @@ In same directory as np02_test.exe, place the following files:
   cygwin1.dll
 
 These can be found in [CYGWIN INSTALLATION DIRECTORY]\cygwin\cygwin64\bin
+
+
+
+ROADMAP
+
+  CF01
+    Auto-Assert
+      Initial Implementation: Status=Operational
+      
+    Hash Consistency Check
+      Initial Implementation: Status=Operational
+
+    Depth increment object: Status=Concept
+
+  NP01
+    Point Pairer: Done
+    
+  NP02
+    Allocator, Locator Grid, Circle, Arc, Rect, LineSeg: Status=Operational
+      NURBS: Status=Concept
+      Distance, near point: Status=Operational
+      Intersection: Status=In Progress
+    Linked Arcs & Segs, Regions: Status=Concept    
+      Region offset
+      Region boolean ( union, intersect, inverse )
+      Region Voronoi Diagram
+    
+
+  NP03
+    High Speed CAD Database: Status=In Progress
+      Basic Objects
+      Facades
+        Standard Facades
+        Extensible by proprietary facades
+    DRC: Status=In Progress
+      Rules
+        Standard Rules
+        Extensible by proprietary rules
+    Genetic Algorithm Framework: Status=In Progress
+      Mutations, Combinations
+        Standard Mutations, Combinations        
+        Extensible by proprietary algorithms
+      
+    6678876-Router: Status=Concept
+        https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6678876
+        https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6862727
+        Delaunay Triangulation
+    Newport Autorouter: Status=Concept
+    Genetic Autorouter: Status=Concept
+    Multi-threaded: Status=Concept
+    
+
+    
+ROADMAP DETAILS
+  CF01    
+    Depth increment object: Status=Concept
+
+  NP01
+    Point Pairer
+    
+  NP02
+    Allocator, Locator Grid, Circle, Arc, Rect, LineSeg
+      NURBS
+      Distance, near point
+      Intersection
+    Linked Arcs & Segs, Regions   
+      Region offset
+      Region boolean ( union, intersect, inverse )
+      Region Voronoi Diagram
+
+  NP03
+    High Speed CAD Database
+      Basic Objects
+       /* np03_db.cpp */
+       class np03_db_object: base class
+       class np03_workspace: top node of runtime database tree
+       class np03_project: single design
+
+       /* np03_brd.cpp */
+       class np03_brd: pcb/multi-layer board
+       class np03_comp: component
+       class np03_net: net
+       class np03_pin: pin
+       class np03_comp_pin: component pin
+       class np03_rt_pin: route pin
+       class np03_pin_pair: pin-pair
+       class np03_diff_pair: differential pair
+       class np03_via: via
+
+       /* np03_layer.cpp */
+       class np03_layer: layer of brd
+       class np03_trace: trace 
+       class np03_trace_seg: trace segment
+       class np03_conductor: pad
+       class np03_comp_cond: pad as part of component
+       class np03_lyr_cond: conductor as part of layer
+       class np03_fly_line: straight line between pins of pin-pair
+
+
+      Facades
+        Standard Facades - way of organizing code, separating higher-level
+          queries and routines away from lower-level code.
+          
+          /* np03_facade.cpp */
+          class np03_db_object_facade;
+          class np03_workspace_facade;
+          class np03_project_facade;
+          class np03_brd_facade;
+          class np03_comp_facade;
+          class np03_cap_facade; /* query/modify component as if it were a capacitor */
+          class np03_net_facade;
+          class np03_pin_facade;
+          class np03_comp_pin_facade;
+          class np03_rt_pin_facade;
+          class np03_pin_pair_facade;
+          class np03_diff_pair_facade;
+          class np03_via_facade;
+          class np03_layer_facade;
+          class np03_trace_facade;
+          class np03_trace_seg_facade;
+          class np03_conductor_facade;
+          class np03_comp_cond_facade;
+          class np03_lyr_cond_facade;
+          class np03_fly_line_facade;
+
+        Proprietary facades -- not public domain, not in NP03
+          
+
+    DRC: Status=In Progress
+      Rules
+        Standard Rules
+          clearance
+            pad-pad
+            pad-trace
+            trace-trace
+            ...
+          dimension
+            trace length
+            trace width
+            power plane width
+          electrical
+            power plane resistance
+          
+
+          /* np03_rule.cpp*/
+          enum np03_grade{
+              NP03_GRADE_00_SEVERE_VIOLATION  = 0,    /* 0.75 <  cost <= 1.0  */
+              NP03_GRADE_01_VIOLATION         = 1,    /* 0.5  <  cost <= 0.75 */
+              NP03_GRADE_02_WARNING           = 2,    /* 0.25 <= cost <= 0.5  */
+              NP03_GRADE_03_PASSING           = 3,    /* 0.25 <= cost <= 0.5  */
+              NP03_GRADE_04_EXCELLENT         = 4,    /* 0.0  <  cost <  0.25 */
+              NP03_GRADE_05_OPTIMUM           = 5,    /*         cost =  0.0  */
+
+              NP03_GRADE_COUNT
+          };
+
+          /* single measurement evaluation, part of a rule result*/
+          class np03_rule_result_entry{
+              np03_grade m_grade;
+              double         m_cost;
+          }
+
+
+          class np03_rule_result_entry_verbose : public np03_rule_result_entry{
+              xy         m_location_a;
+              xy         m_location_b;
+              std::string         m_layer_name_a;
+              std::string         m_layer_name_b;
+              std::string         m_msg;
+          }
+          
+          /*
+          Single clearance violation distance_value = min allowed distance - actual distance
+          Single clearance violation cost = square(min allowed distance - actual distance)
+          
+          cost vector:
+           [0] number of clearance violations in worst bucket (viol_d_val > worst_bucket_threshold)
+           [1] sum of clearance violation costs in worst bucket.
+           [2] number of clearance violations in next-to-worst bucket (viol_d_val > next_to_worst_bucket_threshold)
+           [3] sum of clearance violation costs in next-to-worst bucket.
+           [4] number of clearance violations in middle bucket (viol_d_val > middle_bucket_threshold)
+           [5] sum of clearance violation costs in middle bucket.
+           ...
+          */
+          
+          class np03_cost_set{
+          private:
+              typedef std::pair<double, double> count_cost_pair;
+              typedef std::vector<count_cost_pair> count_cost_pair_vec;
+          private:
+              /*
+              +---------+--------------------------------+---------------------------------+
+              |         | count = (optionally weighted)  |  cost = (optionally weighted)   |
+              |  grade  |  number of entries             | sum of cost of entries          |
+              |         |   of this grade                |  of this grade                  |
+              +---------+--------------------------------+---------------------------------+
+              size = np03_GRADE_COUNT
+              */
+              count_cost_pair_vec m_count_cost_pair_vec;
+          };
+          
+          class np03_rule_result{
+          private:
+              typedef std::pair<size_t, double> count_cost_pair;
+              typedef std::vector<count_cost_pair> count_cost_pair_vec;
+              typedef count_cost_pair_vec::const_iterator count_cost_pair_c_itr;
+              typedef count_cost_pair_vec::iterator count_cost_pair_itr;
+          
+          private:
+              /* rule info */
+              double m_weight;
+              std::string m_rule_name;
+              std::string m_rule_description;
+          
+              np03_cost_set m_cost_set;
+          
+              /* verbose entries */
+              np03_rule_result_entry_verbose_vec m_verbose_entry_vec;
+          };
+          
+          /*
+          Evaluate Rule Set
+            For each rule
+              Get object subset
+                1. by bounding box
+                2. by object list
+              Measure rule criteria
+              Update cost set
+          Result: cost set 
+          */
+          class np03_rule_result_repository{
+          private:
+              typedef std::list<np03_rule_result> np03_rule_result_list;
+              typedef np03_rule_result_list::const_iterator np03_rule_result_list_c_itr;
+              typedef np03_rule_result_list::iterator np03_rule_result_list_itr;
+          
+              typedef std::vector<np03_rule_result_list_itr> np03_rule_result_list_itr_vec;
+          private:
+              np03_rule_result_list m_result_list;
+              np03_rule_result_list_itr_vec m_result_list_itr_vec;
+          };
+          
+          class np03_rule_scope{
+          public:
+              typedef std::vector<np03_comp *> comp_vec;
+              typedef comp_vec::const_iterator comp_vec_citr;
+              typedef comp_vec::iterator comp_vec_itr;
+          
+          private:
+              np03_project   *m_project;
+              comp_vec            m_comps_in_scope;
+          };
+          
+          struct np03_rule_eval_params{
+              np03_rule_scope                *m_rule_scope;
+              np03_rule_result_repository    *m_result_repo;
+              bool                                m_verbose;
+          };
+          
+          class np03_rule{
+          private:
+              double m_weight;
+              std::string m_name;
+              std::string m_description;
+          public:
+              virtual void evaluate( const np03_rule_eval_params& p )=0;
+          };
+          
+          class np03_rule_pad_pad_clearance: public np03_rule{
+          private:
+              np03_project   *m_project;
+              np03_unit       m_prj_unit;
+          
+          public:
+              np03_rule_pad_pad_clearance();
+              virtual ~np03_rule_pad_pad_clearance();
+              virtual void evaluate( const np03_rule_eval_params& p );
+          private:
+              void get_min_std_pad_pad_clearance(
+                  const np03_lyr_cond *lyr_pad_a,
+                  const np03_lyr_cond *lyr_pad_b,
+                  double *min_clearance, double *std_clearance );
+          };
+          
+          class np03_rule_avg_pin_pair_distance: public np03_rule{
+          private:
+              np03_project   *m_project;
+              np03_unit       m_prj_unit;
+          
+          public:
+              np03_rule_avg_pin_pair_distance();
+              virtual ~np03_rule_avg_pin_pair_distance();
+              virtual void evaluate( const np03_rule_eval_params& p );
+          private:
+              void get_ave_pp_distance_limits(
+                  double *min_warn_pp_d, double *std_pp_d );
+          };
+          
+          class np03_rule_set{
+          private:
+              typedef std::vector< np03_rule * > rule_vec;
+          private:
+              rule_vec m_rule_vec;
+          public:
+              void add_rule( np03_rule *r );
+              void evaluate( const np03_rule_eval_params& p );
+          };
+          
+        
+
+          Score
+            Violation Cost
+              missing required net assignments made (missing pin-pairs)
+              incorrectly shorted pins
+              mismatched diff-pair assignments
+              pad-pad overlap & clearance 
+              pad-to-trace overlap & clearance
+              trace-to-trace overlap & clearance
+              total sq length for violating pin-pair length
+              total sq length for violating trace length
+
+
+            Optimization Score
+              pin-pair (flyline) crossover cost
+              total pin-pair length
+
+        Proprietary rules -- not public domain, not in NP03
+
+    Genetic Algorithm Framework
+      /* np03.cpp */
+      class np03_gen_wksp;
+
+      /* np03_genetic.cpp*/
+      class np03_gen_rep{
+      private:
+      typedef std::pair<size_t, size_t> size_t_pair;
+      typedef std::vector<size_t_pair> size_t_pair_vec;
+      typedef std::pair<xy,double> xy_dbl_pair;
+      typedef std::pair<size_t,xy_dbl_pair> idx_xy_dbl;
+      typedef std::vector<idx_xy_dbl> idx_xy_dbl_vec;
+      private:
+          /* pin pairs 
+
+             TODO:  
+                optional: further split into categories
+                     GND pins
+                     Diff Pair pins
+                     Other Groups
+
+             pin_pair_idx_vec_1[i].first          pin_pair_idx_vec_1[i].second
+             pad pin (comp_pin idx)               pad pin (comp_pin idx) 
+             */
+          size_t_pair_vec m_pin_pair_idx_vec;
+
+          /* component locations 
+              comp idx, x, y, rot    */
+          idx_xy_dbl_vec m_comp_placement_vec;
+
+          /* traces */
+          /* power planes squares */
+      };
+
+
+      Convert gen_rep -> workspace
+        clear conflicting pin pairs
+        clear conflicting vias & top layer pads
+        clear conflicting fly_lines
+        clear traces
+        move capacitors, move associated rt_pins and lyr_conds
+        create pin pairs
+        create vias & top layer pads
+        create fly_lines
+        create traces
+
+      Convert workspace -> gen_rep
+        subset of objects
+
+      Mutations, Combinations
+        Standard Mutations, Combinations        
+        Extensible by proprietary algorithms
+      
+    6678876-Router: Status=Concept
+        https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6678876
+        https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6862727
+        Delaunay Triangulation
+    Newport Router
+        SURF https://dl.acm.org/doi/pdf/10.1145/127601.127622
+        SURF: https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=91ce7726d0b103db47ab5db433ed75b538e6e7f8
+        https://github.com/freerouting/freerouting
+ 
+        Create cut graph, once for each layer
+        Additional cost for cuts, by net.
+        Double-Ended A* free-space routing, on multiple layers
+        post-route smoothing by genetic algorithm
+        Genetic modification of additional costs
+
+
+    Genetic Autorouter
+      genetic representation
+        workspace -> gen_rep
+        gen_rep -> workspace
+
+        Represent trace as sequence of line segments and arcs
+
+        Mutations
+          move trace to different layer (random)
+          move vertex random [dx,dy]
+          move vertex a random dx,dy
+          move group of vertices as a group
+          add vertex
+          remove vertex
+          move vertices of all traces in a small region
+
+        Combinations
+          Initial portion of trace from solution X + final portion of trace from solution Y
+   
+    Multi-threaded
+      Route portion of design in each thread
+      Combine results
+
+
+
+
+
+
+
 
 
 
