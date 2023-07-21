@@ -1294,7 +1294,7 @@ private:
 
 private:
     int m_shape_test_number;
-    int m_shape_test_iteration_count;
+    uint32_t m_shape_test_iteration_count;
     int m_shape_test_rand_seed;
 
     /* loop counts */
@@ -1323,12 +1323,13 @@ public:
     int execute();
 private:
     void advance_rand();
+    static unsigned int rand_max(){ return static_cast<unsigned int>(0x7fff); }
     int get_rand_int() const { return static_cast<int>(
         static_cast<unsigned int>(
-            (m_rand_uint32 >> 16) | (m_rand_uint32 << 16)) & RAND_MAX); }
+            (m_rand_uint32 >> 16) | (m_rand_uint32 << 16)) & rand_max()); }
     double get_rand_dbl(const double& low, const double& high){
         return low + ((high-low)*static_cast<double>(get_rand_int())/
-        static_cast<double>(RAND_MAX-1));
+        static_cast<double>(rand_max() -1));
         }
     void make_rand_shapes( np02_shp_alloc *shp_alloc, const int& ww,
         const int& hh,  const double& basic_length,

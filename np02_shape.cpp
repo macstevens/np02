@@ -12,6 +12,7 @@ Reference: https://opensource.org/licenses/ISC
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <limits>
 #include <set>
@@ -4166,7 +4167,6 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_2);
 double d = 0.0;
-double dx, dy, dsq;
 const double fwd_dot = (m_fwd.get_x() * xy.get_x()) + 
                        (m_fwd.get_y() * xy.get_y());
 const double fwd_cross = (m_fwd.get_x() * xy.get_y()) - 
@@ -4899,7 +4899,7 @@ return h;
 
 int np02_rect::verify_data( char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
-int err_cnt;
+int err_cnt = 0;
 err_cnt += np02_shape::verify_data(err_msg,err_msg_capacity,err_msg_pos);
 
 if(NP02_SHAPE_TYPE_RECT != get_shape_type() ){
@@ -7363,7 +7363,8 @@ if(NULL != bmp_file){
             }
 
         char msg_buf[32];
-        sprintf(msg_buf, "i%i j%i s%i", i,j,shape_count);
+        sprintf(msg_buf, "i%i j%i s%llu", i,j,
+            static_cast<unsigned long long>(shape_count));
 
         ii0 = (pixel_num * (m_loc_grid_dim.get_x_min() + 
             (static_cast<double>(i)* m_loc_grid_dim.get_sq_size()) - 
@@ -7510,11 +7511,11 @@ void np02_shp_alloc::free_shape(np02_shape *shape)
 AA_INCR_CALL_DEPTH();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 if(NULL != shape){
-    np02_circle *circle;
-    np02_arc *arc;
-    np02_line_seg *line_seg;
-    np02_rect *rect;
-    np02_polygon *polygon;
+    np02_circle *circle=NULL;
+    np02_arc *arc = NULL;
+    np02_line_seg *line_seg = NULL;
+    np02_rect *rect = NULL;
+    np02_polygon *polygon = NULL;
     if( (circle = dynamic_cast<np02_circle *>(shape)) != NULL ){
         free_circle(circle);
         }
@@ -7527,7 +7528,7 @@ if(NULL != shape){
     else if((rect=dynamic_cast<np02_rect *>(shape)) != NULL){
         free_rect(rect);
         }
-    else if((polygon=dynamic_cast<np02_polygon *>(polygon)) != NULL){
+    else if((polygon=dynamic_cast<np02_polygon *>(shape)) != NULL){
         free_polygon(polygon);
         }
     else{ AA_ALWAYS_ASSERT(false); }
@@ -7541,7 +7542,7 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_circle *circle = NULL;
 if(NULL == m_circle_free_chain){
     circle = new np02_circle();
-    circle->set_shape_idx(m_alloc_circle_vec.size());
+    circle->set_shape_idx(static_cast<shape_idx_type>(m_alloc_circle_vec.size()));
     circle->set_shp_alloc(this);
     m_alloc_circle_vec.push_back(circle);
     }
@@ -7576,7 +7577,7 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_arc *arc = NULL;
 if(NULL == m_arc_free_chain){
     arc = new np02_arc();
-    arc->set_shape_idx(m_alloc_arc_vec.size());
+    arc->set_shape_idx(static_cast<shape_idx_type>(m_alloc_arc_vec.size()));
     arc->set_shp_alloc(this);
     m_alloc_arc_vec.push_back(arc);
     }
@@ -7612,7 +7613,7 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_line_seg *line_seg = NULL;
 if(NULL == m_line_seg_free_chain){
     line_seg = new np02_line_seg();
-    line_seg->set_shape_idx(m_alloc_line_seg_vec.size());
+    line_seg->set_shape_idx(static_cast<shape_idx_type>(m_alloc_line_seg_vec.size()));
     line_seg->set_shp_alloc(this);
     m_alloc_line_seg_vec.push_back(line_seg);
     }
@@ -7647,7 +7648,7 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_rect *rect = NULL;
 if(NULL == m_rect_free_chain){
     rect = new np02_rect();
-    rect->set_shape_idx(m_alloc_rect_vec.size());
+    rect->set_shape_idx(static_cast<shape_idx_type>(m_alloc_rect_vec.size()));
     rect->set_shp_alloc(this);
     m_alloc_rect_vec.push_back(rect);
     }
@@ -7682,7 +7683,7 @@ CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_polygon *polygon = NULL;
 if(NULL == m_polygon_free_chain){
     polygon = new np02_polygon();
-    polygon->set_shape_idx(m_alloc_polygon_vec.size());
+    polygon->set_shape_idx(static_cast<shape_idx_type>(m_alloc_polygon_vec.size()));
     polygon->set_shp_alloc(this);
     m_alloc_polygon_vec.push_back(polygon);
     }
@@ -7965,7 +7966,6 @@ return h;
 
 int np02_shp_alloc::verify_data( char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
-size_t i;
 int err_cnt = 0;
 err_cnt += verify_data_alloc_circle(err_msg, err_msg_capacity, err_msg_pos );
 err_cnt += verify_data_alloc_arc(err_msg, err_msg_capacity, err_msg_pos );
@@ -8834,18 +8834,18 @@ if( NULL != p.m_bmp_file ){
             }
 
         if( NULL != p.m_err_xy_a ){
-            const double err_ii_a =
-                ( p.m_err_xy_a->get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num;
-            const double err_jj_a =
-                ( p.m_err_xy_a->get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num;
+            const int32_t err_ii_a = static_cast<int32_t>(floor(
+                ( p.m_err_xy_a->get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num));
+            const int32_t err_jj_a = static_cast<int32_t>(floor(
+                ( p.m_err_xy_a->get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num));
             p.m_bmp_file->draw_cross( err_ii_a, err_jj_a, 9, np02_bmp_color::yellow() );
             }
 
         if( NULL != p.m_err_xy_b ){
-            const double err_ii_b =
-                ( p.m_err_xy_b->get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num;
-            const double err_jj_b =
-                ( p.m_err_xy_b->get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num;
+            const int32_t err_ii_b = static_cast<int32_t>(floor(
+                ( p.m_err_xy_b->get_x() - p.m_xy_min.get_x() ) * p.m_pixel_num));
+            const int32_t err_jj_b = static_cast<int32_t>(floor(
+                ( p.m_err_xy_b->get_y() - p.m_xy_min.get_y() ) * p.m_pixel_num));
             p.m_bmp_file->draw_x( err_ii_b, err_jj_b, 7, np02_bmp_color::silver() );
             }
         }
@@ -9177,8 +9177,10 @@ if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
     static const double pixels_per_basic_length = 256.0;
     const double pixel_num = pixels_per_basic_length/basic_length;
-    bmp_init_params.width_px = ww * pixels_per_basic_length;
-    bmp_init_params.height_px = hh * pixels_per_basic_length;
+    bmp_init_params.width_px =
+        static_cast<int32_t>(floor(ww * pixels_per_basic_length));
+    bmp_init_params.height_px =
+        static_cast<int32_t>(floor(hh * pixels_per_basic_length));
     np02_bmp_file bmp_file(bmp_init_params);
 
     char bmp_file_name_buf[255];
@@ -9218,8 +9220,10 @@ if(should_write_file){
         std::string focus_bmp_file_name( focus_bmp_file_name_buf ); 
 
         np02_bmp_file_init_params focus_bmp_init_params;
-        focus_bmp_init_params.width_px = ww * pixels_per_basic_length;
-        focus_bmp_init_params.height_px = hh * pixels_per_basic_length;
+        focus_bmp_init_params.width_px =
+            static_cast<int32_t>(floor(ww * pixels_per_basic_length));
+        focus_bmp_init_params.height_px =
+            static_cast<int32_t>(floor(hh * pixels_per_basic_length));
         np02_bmp_file focus_bmp_file(focus_bmp_init_params);
 
         bmp_debug_file_params focus_bmp_file_p = bmp_file_p;
@@ -9499,8 +9503,10 @@ if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
     static const double pixels_per_basic_length = 256.0;
     const double pixel_num = pixels_per_basic_length/basic_length;
-    bmp_init_params.width_px = ww * pixels_per_basic_length;
-    bmp_init_params.height_px = hh * pixels_per_basic_length;
+    bmp_init_params.width_px =
+        static_cast<int32_t>(floor(ww * pixels_per_basic_length));
+    bmp_init_params.height_px =
+        static_cast<int32_t>(floor(hh * pixels_per_basic_length));
     np02_bmp_file bmp_file(bmp_init_params);
 
     loc_grid->write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
@@ -9543,8 +9549,10 @@ if(should_write_file){
         std::string focus_bmp_file_name( focus_bmp_file_name_buf ); 
 
         np02_bmp_file_init_params focus_bmp_init_params;
-        focus_bmp_init_params.width_px = ww * pixels_per_basic_length;
-        focus_bmp_init_params.height_px = hh * pixels_per_basic_length;
+        focus_bmp_init_params.width_px =
+            static_cast<int32_t>(floor(ww * pixels_per_basic_length));
+        focus_bmp_init_params.height_px =
+            static_cast<int32_t>(floor(hh * pixels_per_basic_length));
         np02_bmp_file focus_bmp_file(focus_bmp_init_params);
 
         bmp_debug_file_params focus_bmp_file_p = bmp_file_p;
@@ -9749,8 +9757,10 @@ if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
     static const double pixels_per_basic_length = 256.0;
     const double pixel_num = pixels_per_basic_length/basic_length;
-    bmp_init_params.width_px = ww * pixels_per_basic_length;
-    bmp_init_params.height_px = hh * pixels_per_basic_length;
+    bmp_init_params.width_px = 
+        static_cast<int32_t>(floor(ww * pixels_per_basic_length));
+    bmp_init_params.height_px =
+        static_cast<int32_t>(floor(hh * pixels_per_basic_length));
     np02_bmp_file bmp_file(bmp_init_params);
 
     loc_grid->write_bmp_file(xy_min, pixel_num, np02_bmp_color::gray(),
@@ -9793,8 +9803,10 @@ if(should_write_file){
         std::string focus_bmp_file_name( focus_bmp_file_name_buf ); 
 
         np02_bmp_file_init_params focus_bmp_init_params;
-        focus_bmp_init_params.width_px = ww * pixels_per_basic_length;
-        focus_bmp_init_params.height_px = hh * pixels_per_basic_length;
+        focus_bmp_init_params.width_px =
+            static_cast<int32_t>(floor(ww * pixels_per_basic_length));
+        focus_bmp_init_params.height_px =
+            static_cast<int32_t>(floor(hh * pixels_per_basic_length));
         np02_bmp_file focus_bmp_file(focus_bmp_init_params);
 
         bmp_debug_file_params focus_bmp_file_p = bmp_file_p;

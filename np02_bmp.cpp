@@ -638,7 +638,7 @@ if( m_header.height_px > 0 ){
 return clamped_j;
 }
 
-double np02_bmp_file::get_clamped_i_dbl( const int32_t& i ) const{
+double np02_bmp_file::get_clamped_i_dbl( const double& i ) const{
 double clamped_i = 0.0;
 if( m_header.width_px > 0 ){
     const double max_i = static_cast<double>( m_header.width_px - 1 );
@@ -647,7 +647,7 @@ if( m_header.width_px > 0 ){
 return clamped_i;
 }
 
-double np02_bmp_file::get_clamped_j_dbl( const int32_t& j ) const{
+double np02_bmp_file::get_clamped_j_dbl( const double& j ) const{
 double clamped_j = 0.0;
 if( m_header.width_px > 0 ){
     const double max_j = static_cast<double>( m_header.height_px - 1 );

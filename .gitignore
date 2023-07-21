@@ -7,3 +7,10 @@
 /slickedit_gcc/Release/*.bmp
 /slickedit_gcc/Release/
 /slickedit_gcc/Profile/
+/msvc/.vs/np02/FileContentIndex/
+/msvc/.vs
+*.vcxproj.filters
+*.vcxproj.user
+/msvc/np02/x64
+/msvc/np02_test/x64
+/msvc/x64
