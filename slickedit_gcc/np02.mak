@@ -23,9 +23,9 @@ OUTFILE=$(OUTDIR)/np02.a
 CFG_INC=-I.. -I../../cf01 
 CFG_LIB=
 CFG_OBJ=
-COMMON_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_shape.o
+COMMON_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_region.o $(OUTDIR)/np02_shape.o
 OBJ=$(COMMON_OBJ) $(CFG_OBJ)
-ALL_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_shape.o
+ALL_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_region.o $(OUTDIR)/np02_shape.o
 
 COMPILE=g++ -c -ggdb -g -o "$(OUTDIR)/$(*F).o" $(CFG_INC) "$<"
 LINK=ar -rs  "$(OUTFILE)" $(OBJ)
@@ -63,9 +63,9 @@ OUTDIR=Release
 OUTFILE=$(OUTDIR)/np02.a
 CFG_INC=-I.. -I../../cf01 
 CFG_LIB=
-COMMON_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_shape.o
+COMMON_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_region.o $(OUTDIR)/np02_shape.o
 OBJ=$(COMMON_OBJ) $(CFG_OBJ)
-ALL_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_shape.o
+ALL_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_region.o $(OUTDIR)/np02_shape.o
 
 
 COMPILE=g++ -c -O2 -o "$(OUTDIR)/$(*F).o" $(CFG_INC) "$<"
@@ -105,9 +105,9 @@ OUTFILE=$(OUTDIR)/np02.a
 CFG_INC=-I.. -I../../cf01 
 CFG_LIB=
 CFG_OBJ=
-COMMON_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_shape.o
+COMMON_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_region.o $(OUTDIR)/np02_shape.o
 OBJ=$(COMMON_OBJ) $(CFG_OBJ)
-ALL_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_shape.o
+ALL_OBJ=$(OUTDIR)/np02.o $(OUTDIR)/np02_bmp.o $(OUTDIR)/np02_dxf.o $(OUTDIR)/np02_region.o $(OUTDIR)/np02_shape.o
 
 
 COMPILE=g++ -c -O1 -pg -o "$(OUTDIR)/$(*F).o" $(CFG_INC) "$<"

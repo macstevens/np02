@@ -101,19 +101,27 @@ else{
 
 /* np02_shape.cpp */
 class np02_xy;
+class np02_shape_owner;
+class np02_shape_handle;
 class np02_shape;
 class np02_circle;
 class np02_arc;
 class np02_line_seg;
 class np02_rect;
 class np02_polygon;
+class np02_spline;
 class np02_loc_grid_dim;
 class np02_loc_grid_node;
 class np02_loc_grid;
 class np02_shp_alloc;
+
+/* np02_region.cpp */
+class np02_boundary_seg;
+class np02_boundary;
+class np02_region;
+
+/* TODO: move to np02_shape_test.cpp */
 class np02_shape_test;
-
-
 
 /* STL containers*/
 typedef std::pair<uint16_t,uint16_t> np02_uint16_pair;
@@ -192,14 +200,81 @@ typedef std::vector<np02_xy> np02_xy_vec;
 typedef np02_xy_vec::const_iterator np02_xy_vec_citr;
 typedef np02_xy_vec::iterator np02_xy_vec_itr;
 
+
 typedef uint32_t shape_idx_type;
 typedef uint64_t shp_owner_idx_type;
+typedef uint64_t shp_hndl_owner_idx_type;
 typedef uint64_t lyr_idx_type;
 
 #define NP02_SHAPE_MAX_IDX (std::numeric_limits<shape_idx_type>::max()/4)
 #define NP02_SHP_OWNER_INVALID_IDX (std::numeric_limits<shp_owner_idx_type>::max())
+#define NP02_SHP_HNDL_OWNER_INVALID_IDX \
+    (std::numeric_limits<shp_hndl_owner_idx_type>::max())
 #define NP02_LYR_INVALID_IDX (std::numeric_limits<lyr_idx_type>::max())
 
+
+/* abstract base class */
+class np02_shape_owner{
+private:
+public:
+	np02_shape_owner();
+    virtual ~np02_shape_owner();
+	virtual np02_shape *get_shape() const = 0;
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
+    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+};
+
+enum np02_shape_handle_type{
+    NP02_SHAPE_HANDLE_TYPE_SHAPE = 0,
+    NP02_SHAPE_HANDLE_TYPE_REGION = 1,
+    NP02_SHAPE_HANDLE_TYPE_FREE_CHAIN = 2,
+    NP02_SHAPE_HANDLE_TYPE_COUNT
+};
+
+/* owned by np03_conductor, n03_trace_seg, etc. */
+class np02_shape_handle: public np02_shape_owner{
+private:
+	union object_ptr{
+        object_ptr(): m_free_chain_next(NULL){}
+	    np02_shape *m_shape;
+	    np02_region *m_region;
+	    np02_shape_handle *m_free_chain_next;
+	    };
+private:
+    np02_shp_alloc *m_shp_alloc;
+    size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_shape_handle_by_idx() */
+    np02_shape_handle_type m_hndl_type;
+    shp_hndl_owner_idx_type m_owner_idx;
+	object_ptr m_object_ptr;
+public:
+	np02_shape_handle();
+    virtual ~np02_shape_handle();
+    void destruct() { clear_shp_rgn(); } /* TOOD: move to .cpp file */
+    void set_free_chain_next(np02_shape_handle *n){
+        clear_shp_rgn();
+        m_hndl_type = NP02_SHAPE_HANDLE_TYPE_FREE_CHAIN;
+        m_object_ptr.m_free_chain_next = n;}
+    np02_shape_handle *get_free_chain_next() const{
+        return m_object_ptr.m_free_chain_next; }
+    void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
+    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
+    void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
+    const size_t& get_alloc_idx() const{ return m_alloc_idx; }
+    void set_owner_idx( const shp_hndl_owner_idx_type& i){ m_owner_idx = i; }
+    const shp_hndl_owner_idx_type& get_owner_idx() const{ return m_owner_idx; }
+    void set_shape(np02_shape *shape);
+    void set_region(np02_region *region);
+	virtual np02_shape *get_shape() const;
+	np02_region *get_region() const;
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
+    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+private:
+    void clear_shp_rgn();
+    np02_shape_handle(const np02_shape_handle&); /* don't implement */
+    np02_shape_handle& operator=(const np02_shape_handle&); /* don't implement */
+};
 
 
 enum np02_answer_quality{
@@ -293,6 +368,7 @@ enum np02_shape_type{
     NP02_SHAPE_TYPE_LINE_SEG,
     NP02_SHAPE_TYPE_RECT,
     NP02_SHAPE_TYPE_POLYGON,
+    NP02_SHAPE_TYPE_SPLINE,
     NP02_SHAPE_TYPE_COUNT
 };
 
@@ -884,6 +960,52 @@ public:
         const uint8_t& color, np02_dxf_file *dxf_file) const;
 };
 
+/* 2D NURBS */
+class np02_spline: public np02_shape{
+public:
+    
+public:
+    np02_spline();
+    virtual ~np02_spline();
+    void set_free_chain_next(np02_spline *n){/* TODO: implement */}
+    np02_spline *get_free_chain_next() const{ return NULL; /* TODO: implement */ } 
+    virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const;
+    virtual void get_loc_grid_indices_for_init(
+        const np02_loc_grid_dim& loc_grid_dim,
+        const double& extra_search_d, np02_uint16_pair_vec *index_vec)
+        const;
+    virtual double get_distance_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL) const;
+    virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
+        const np02_xy& xy_b, np02_xy *near_xy=NULL,
+        np02_xy *other_near_xy=NULL) const;
+    virtual double get_distance_from_circle(const np02_circle *c,
+        np02_xy *near_xy=NULL, np02_xy *circle_near_xy=NULL) const;
+    virtual double get_distance_from_arc(const np02_arc *a,
+        np02_xy *near_xy=NULL, np02_xy *arc_near_xy=NULL) const;
+    virtual double get_distance_from_line_seg(const np02_line_seg *n,
+        np02_xy *near_xy=NULL, np02_xy *line_seg_near_xy=NULL)const;
+    virtual double get_distance_from_rect(const np02_rect *r,
+        np02_xy *near_xy=NULL, np02_xy *rect_near_xy=NULL) const;
+    virtual double get_distance_from_polygon(const np02_polygon *p,
+        np02_xy *near_xy=NULL, np02_xy *polygon_near_xy=NULL)const;
+    virtual double get_distance_from_shape(const np02_shape *s,
+        np02_xy *near_xy=NULL, np02_xy *other_near_xy=NULL) const;
+    virtual void translate_no_loc_grid(const np02_xy& dxy);
+    virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
+        const double& rot_deg);
+
+    virtual uint64_t hash( const uint64_t& h_in=0 ) const;
+    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+    virtual std::ostream& ostream_output(std::ostream& os) const;
+    virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_dxf_file(const std::string& layer,
+        const uint8_t& color, np02_dxf_file *dxf_file) const;
+};
+
 
 /* initialize from points */
 struct np02_loc_grid_dim_init_params{
@@ -1165,17 +1287,141 @@ private:
     void clear_loc_grid();
 };
 
+
+/* applies to arc or line_seg */
+enum np02_boundary_seg_orientation{
+    NP02_BOUNDARY_SEG_ORIENTATION_FWD = 0,
+    NP02_BOUNDARY_SEG_ORIENTATION_REV = 1,
+    NP02_BOUNDARY_SEG_ORIENTATION_COUNT
+};
+
+/* applies to rect or circle */
+enum np02_boundary_seg_invert_status{
+    NP02_BOUNDARY_SEG_INVERT_STATUS_NORMAL= 0,
+    NP02_BOUNDARY_SEG_INVERT_STATUS_INVERTED = 1,
+    NP02_BOUNDARY_SEG_INVERT_STATUS_COUNT
+};
+
+class np02_boundary_seg: public np02_shape_owner{
+private:
+    np02_shp_alloc *m_shp_alloc;
+    size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_boundary_seg_by_idx() */
+    np02_boundary *m_owner;
+    np02_shape *m_shape;
+    np02_boundary_seg *m_prev;
+    np02_boundary_seg *m_next;
+    np02_boundary_seg_orientation m_orientation; 
+    np02_boundary_seg_invert_status m_invert_status;   
+public:
+	np02_boundary_seg();
+    virtual ~np02_boundary_seg();
+    void destruct();
+    void set_free_chain_next(np02_boundary_seg *n){ m_next=n; }
+    np02_boundary_seg *get_free_chain_next() const{ return m_next; }
+    void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
+    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
+    void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
+    const size_t& get_alloc_idx() const{ return m_alloc_idx; }
+    void set_owner(np02_boundary *owner){ m_owner = owner; }
+    np02_boundary *get_owner() const{ return m_owner; }
+    void set_shape(np02_shape *shape);
+	virtual np02_shape *get_shape() const;
+    void set_prev(np02_boundary_seg *prev){ m_prev = prev; }
+    np02_boundary_seg *get_prev() const{ return m_prev; }
+    void set_next(np02_boundary_seg *next){ m_next = next; }
+    np02_boundary_seg *get_next() const{ return m_next; }
+    void set_orientation(const np02_boundary_seg_orientation& o){
+        m_orientation = o; }
+    const np02_boundary_seg_orientation &get_orientation() const{
+        return m_orientation; }
+    void set_invert_status(const np02_boundary_seg_invert_status& s){
+        m_invert_status = s; }
+    const np02_boundary_seg_invert_status &get_invert_status() const{
+        return m_invert_status; }
+    uint64_t hash( const uint64_t& h_in=0 ) const;
+    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+private:
+    void clear_shape();
+    np02_boundary_seg(const np02_boundary_seg&); /* don't implement */
+    np02_boundary_seg& operator=(const np02_boundary_seg&); /* don't implement */
+};
+
+class np02_boundary{
+private:
+    np02_shp_alloc *m_shp_alloc;
+    size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_boundary_by_idx() */
+    np02_region *m_owner; 
+    np02_boundary_seg *m_segs_head, *m_segs_tail;
+public:
+	np02_boundary();
+    virtual ~np02_boundary();
+    void destruct();
+    void set_free_chain_next(np02_boundary *n){ /* TODO: implement */ }
+    np02_boundary *get_free_chain_next() const{ /* TODO: implement */ return NULL; }
+    void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
+    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
+    void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
+    const size_t& get_alloc_idx() const{ return m_alloc_idx; }
+    void set_owner(np02_region *owner){ m_owner = owner; }
+    np02_region *get_owner() const{ return m_owner; }
+    void clear_boundary_segs();
+    void add_boundary_seg(np02_boundary_seg *s);
+    uint64_t hash( const uint64_t& h_in=0 ) const;
+    int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+};
+
+class np02_region{
+private:
+    typedef np02_small_vec< np02_boundary *, 1 > boundary_vec;
+private:
+    np02_shp_alloc *m_shp_alloc;
+    size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_region_by_idx() */
+    np02_shape_handle *m_owner;
+    boundary_vec m_boundaries;
+public:
+	np02_region(); /* TODO: init m_owner */
+    virtual ~np02_region();
+    void destruct();
+    void set_free_chain_next(np02_region *n){ /* TODO: implement */ }
+    np02_region *get_free_chain_next() const{ /* TODO: implement */ return NULL; }
+    void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
+    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
+    void set_owner( np02_shape_handle * owner){ m_owner = owner; }
+    np02_shape_handle *get_owner() const{ return m_owner; }
+    void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
+    const size_t& get_alloc_idx() const{ return m_alloc_idx; }
+    void clear_boundaries();
+    void add_boundary(np02_boundary *b);
+    size_t get_boundary_count() const{ return m_boundaries.size(); }
+    np02_boundary *get_boundary( const size_t& i) const{
+        return ( i < m_boundaries.size() ) ? m_boundaries.at(i) : NULL; }
+    uint64_t hash( const uint64_t& h_in=0 ) const;
+    int verify_data( char *err_msg, const size_t err_msg_capacity,
+                     size_t *err_msg_pos ) const;
+};
+
+
 /* Shape Allocator */
 class np02_shp_alloc{
 private:
+
+    typedef std::vector<np02_shape_handle *> shape_handle_vec;
     typedef std::vector<np02_circle *> circle_vec;
     typedef std::vector<np02_arc *> arc_vec;
     typedef std::vector<np02_line_seg *> line_seg_vec;
     typedef std::vector<np02_rect *> rect_vec;
     typedef std::vector<np02_polygon *> polygon_vec;
+    typedef std::vector<np02_spline *> spline_vec;
     typedef std::vector<np02_loc_grid_node *> loc_grid_node_vec;
     typedef std::vector<np02_loc_grid *> loc_grid_vec;
+    typedef std::vector<np02_boundary_seg *> boundary_seg_vec;
+    typedef std::vector<np02_boundary *> boundary_vec;
+    typedef std::vector<np02_region *> region_vec;
 private:
+    shape_handle_vec m_alloc_shape_handle_vec;
+    np02_shape_handle *m_shape_handle_free_chain;
     circle_vec m_alloc_circle_vec;
     np02_circle *m_circle_free_chain;
     arc_vec m_alloc_arc_vec;
@@ -1186,13 +1432,26 @@ private:
     np02_rect *m_rect_free_chain;
     polygon_vec m_alloc_polygon_vec;
     np02_polygon *m_polygon_free_chain;
+    spline_vec m_alloc_spline_vec;
+    np02_spline *m_spline_free_chain;
     loc_grid_node_vec m_alloc_loc_grid_node_vec;
     np02_loc_grid_node *m_loc_grid_node_free_chain;
     loc_grid_vec m_alloc_loc_grid_vec;
-
+    boundary_seg_vec m_alloc_boundary_seg_vec;
+    np02_boundary_seg *m_boundary_seg_free_chain;
+    boundary_vec m_alloc_boundary_vec;
+    np02_boundary *m_boundary_free_chain;
+    region_vec m_alloc_region_vec;
+    np02_region *m_region_free_chain;
 public:
     np02_shp_alloc();
     virtual ~np02_shp_alloc();
+
+    size_t alloc_get_shape_handle_count() const{ return m_alloc_shape_handle_vec.size(); }
+    np02_shape_handle *alloc_get_shape_handle_by_idx(const size_t& i) const{
+        return (i<m_alloc_shape_handle_vec.size())?m_alloc_shape_handle_vec.at(i):NULL; }
+    np02_shape_handle *alloc_shape_handle();
+    void free_shape_handle(np02_shape_handle *shape_handle);
 
     void free_shape(np02_shape *shape);
 
@@ -1227,6 +1486,12 @@ public:
     np02_polygon *alloc_polygon();
     void free_polygon(np02_polygon *polygon);
 
+    size_t alloc_get_spline_count() const{return m_alloc_spline_vec.size();}
+    np02_spline *alloc_get_spline_by_idx(const size_t& i) const{
+        return (i<m_alloc_spline_vec.size())?m_alloc_spline_vec.at(i):NULL;}
+    np02_spline *alloc_spline();
+    void free_spline(np02_spline *spline);
+
     size_t alloc_get_total_shape_count() const;
 
     size_t alloc_get_loc_grid_node_count() const{
@@ -1243,6 +1508,24 @@ public:
     np02_loc_grid *alloc_loc_grid();
     void free_loc_grid(np02_loc_grid *loc_grid);
 
+    size_t alloc_get_boundary_seg_count() const{ return m_alloc_boundary_seg_vec.size(); }
+    np02_boundary_seg *alloc_get_boundary_seg_by_idx(const size_t& i) const{
+        return (i<m_alloc_boundary_seg_vec.size())?m_alloc_boundary_seg_vec.at(i):NULL; }
+    np02_boundary_seg *alloc_boundary_seg();
+    void free_boundary_seg(np02_boundary_seg *boundary_seg);
+
+    size_t alloc_get_boundary_count() const{ return m_alloc_boundary_vec.size(); }
+    np02_boundary *alloc_get_boundary_by_idx(const size_t& i) const{
+        return (i<m_alloc_boundary_vec.size())?m_alloc_boundary_vec.at(i):NULL; }
+    np02_boundary *alloc_boundary();
+    void free_boundary(np02_boundary *boundary);
+
+    size_t alloc_get_region_count() const{ return m_alloc_region_vec.size(); }
+    np02_region *alloc_get_region_by_idx(const size_t& i) const{
+        return (i<m_alloc_region_vec.size())?m_alloc_region_vec.at(i):NULL; }
+    np02_region *alloc_region();
+    void free_region(np02_region *region);
+
     /* debug */
     uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
@@ -1251,6 +1534,8 @@ public:
 
 private:
     void alloc_delete_all();
+    int verify_data_alloc_shape_handle( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data_alloc_circle( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data_alloc_arc( char *err_msg,
@@ -1261,9 +1546,17 @@ private:
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data_alloc_polygon( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    int verify_data_alloc_spline( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data_alloc_loc_grid_node( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data_alloc_loc_grid( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    int verify_data_alloc_boundary_seg( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    int verify_data_alloc_boundary( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    int verify_data_alloc_region( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
 };
 

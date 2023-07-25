@@ -305,6 +305,7 @@
 			<F N="../np02.cpp"/>
 			<F N="../np02_bmp.cpp"/>
 			<F N="../np02_dxf.cpp"/>
+			<F N="../np02_region.cpp"/>
 			<F N="../np02_shape.cpp"/>
 		</Folder>
 	</Files>

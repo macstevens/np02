@@ -22,6 +22,7 @@
     <ClCompile Include="..\..\np02.cpp" />
     <ClCompile Include="..\..\np02_bmp.cpp" />
     <ClCompile Include="..\..\np02_dxf.cpp" />
+    <ClCompile Include="..\..\np02_region.cpp" />
     <ClCompile Include="..\..\np02_shape.cpp" />
   </ItemGroup>
   <ItemGroup>

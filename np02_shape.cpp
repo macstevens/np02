@@ -115,6 +115,150 @@ h ^= ((h << 47) | (h >> 17));
 return h;
 }
 
+
+np02_shape_owner::np02_shape_owner(){
+}
+
+np02_shape_owner::~np02_shape_owner(){
+/* derived class should delete shape */
+}
+
+uint64_t np02_shape_owner::hash( const uint64_t& h_in ) const{
+/*TODO: implement */
+return 0;
+}
+
+int np02_shape_owner::verify_data( char *err_msg, const size_t err_msg_capacity,
+    size_t *err_msg_pos ) const{
+int err_cnt = 0;
+const np02_shape *shape = get_shape();
+if( NULL != shape ){
+    /*TODO: check that shape->get_owner() == this */
+    }
+return err_cnt;
+}
+
+
+np02_shape_handle::np02_shape_handle(): np02_shape_owner(), m_shp_alloc(NULL),
+    m_alloc_idx(0), m_hndl_type(NP02_SHAPE_HANDLE_TYPE_COUNT),
+    m_owner_idx(NP02_SHP_HNDL_OWNER_INVALID_IDX), m_object_ptr(){
+}
+
+np02_shape_handle::~np02_shape_handle(){
+clear_shp_rgn();
+}
+
+void np02_shape_handle::set_shape(np02_shape *shape){
+if((NP02_SHAPE_HANDLE_TYPE_SHAPE != m_hndl_type) ||
+    (m_object_ptr.m_shape != shape)){
+    clear_shp_rgn();
+    m_hndl_type = NP02_SHAPE_HANDLE_TYPE_SHAPE;
+    m_object_ptr.m_shape = shape;
+    }
+AUTO_ASSERT(m_object_ptr.m_shape == shape);
+AUTO_ASSERT( ( NULL == shape ) || ( shape->get_shp_alloc() == m_shp_alloc ) );
+}
+
+void np02_shape_handle::set_region(np02_region *region){
+if((NP02_SHAPE_HANDLE_TYPE_REGION != m_hndl_type) ||
+    (m_object_ptr.m_region != region)){
+    clear_shp_rgn();
+    m_hndl_type = NP02_SHAPE_HANDLE_TYPE_REGION;
+    m_object_ptr.m_region = region;
+    }
+AUTO_ASSERT(m_object_ptr.m_region == region);
+AUTO_ASSERT((NULL == region) || (region->get_shp_alloc() == m_shp_alloc));
+}
+
+np02_shape *np02_shape_handle::get_shape() const{
+np02_shape *shape = NULL;
+switch ( m_hndl_type ){
+    case NP02_SHAPE_HANDLE_TYPE_SHAPE:
+        shape = m_object_ptr.m_shape;
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_REGION:
+        shape = NULL;
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_COUNT:
+    default:
+        shape = NULL;
+        break;
+    }
+AUTO_ASSERT( ( NULL == shape ) || ( shape->get_shp_alloc() == m_shp_alloc ) );
+return shape;
+}
+
+np02_region *np02_shape_handle::get_region() const{
+np02_region *region = NULL;
+switch ( m_hndl_type ){
+    case NP02_SHAPE_HANDLE_TYPE_SHAPE:
+        region = NULL;
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_REGION:
+        region = m_object_ptr.m_region;
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_COUNT:
+    default:
+        region = NULL;
+        break;
+    }
+AUTO_ASSERT((NULL == region) || (region->get_shp_alloc() == m_shp_alloc));
+return region;
+}
+
+uint64_t np02_shape_handle::hash( const uint64_t& h_in ) const{
+/*TODO: implement */
+return 0;
+}
+
+int np02_shape_handle::verify_data( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+err_cnt += np02_shape_owner::verify_data(err_msg,err_msg_capacity,err_msg_pos);
+/* TODO: check m_shape points to this */
+/* TODO: check m_region points to this */
+/* TODO: check m_shp_alloc contains this */
+/* TODO: check m_shp_alloc matches m_shape */
+/* TODO: check m_shp_alloc matches m_region */
+return err_cnt;
+}
+
+/* free memory */
+void np02_shape_handle::clear_shp_rgn(){
+switch ( m_hndl_type ){
+    case NP02_SHAPE_HANDLE_TYPE_SHAPE:
+        if( NULL != m_object_ptr.m_shape ){
+            AUTO_ASSERT( m_object_ptr.m_shape->get_shp_alloc() == m_shp_alloc );
+            if(NULL == m_shp_alloc){
+                delete  m_object_ptr.m_shape;
+                }
+            else{
+                m_shp_alloc->free_shape(m_object_ptr.m_shape);
+                }
+            m_object_ptr.m_shape = NULL;
+            }
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_REGION:
+        if( NULL != m_object_ptr.m_region ){
+            AUTO_ASSERT( m_object_ptr.m_region->get_shp_alloc() == m_shp_alloc );
+            if(NULL == m_shp_alloc){
+                delete  m_object_ptr.m_region;
+                }
+            else{
+                /*TODO: m_shp_alloc->free_region(m_object_ptr.m_region); */
+                }
+            m_object_ptr.m_region = NULL;
+            }
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_COUNT:
+    default:
+        break;
+    }
+m_hndl_type = NP02_SHAPE_HANDLE_TYPE_COUNT;
+}
+
+
+
 int np02_dist_from_xy_xy::verify_result( const np02_shape *a,
     const np02_shape *b, char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
@@ -1271,11 +1415,13 @@ if(NULL != s){
     const np02_line_seg *n = dynamic_cast<const np02_line_seg *>(s);
     const np02_rect *r = dynamic_cast<const np02_rect *>(s);
     const np02_polygon *p = dynamic_cast<const np02_polygon *>(s);
+    const np02_spline *i = dynamic_cast<const np02_spline *>(s);
     if(NULL != c){ d = get_distance_from_circle(c, near_xy, other_near_xy); }
     else if(NULL!=a){ d=get_distance_from_arc(a, near_xy, other_near_xy);}
     else if(NULL!=n){ d=get_distance_from_line_seg(n, near_xy, other_near_xy);}
     else if(NULL!=r){ d=get_distance_from_rect(r, near_xy, other_near_xy); }
     else if(NULL!=p){ d=get_distance_from_polygon(p, near_xy, other_near_xy); }
+    else if(NULL!=i){ AA_ALWAYS_ASSERT(false); /* spline query not supported */ }
     else{ AA_ALWAYS_ASSERT(false); }
     }
 AA_DECR_CALL_DEPTH();
@@ -2317,11 +2463,13 @@ if(NULL != s){
         const np02_line_seg *n = dynamic_cast<const np02_line_seg *>(s);
         const np02_rect *r = dynamic_cast<const np02_rect *>(s);
         const np02_polygon *p = dynamic_cast<const np02_polygon *>(s);
-        if(NULL != c){ d = get_distance_from_circle(c, near_xy, other_near_xy); }
+        const np02_spline *i = dynamic_cast<const np02_spline *>(s);
+        if(NULL != c){ d = get_distance_from_circle(c,near_xy,other_near_xy); }
         else if(NULL!=a){ d=get_distance_from_arc(a, near_xy, other_near_xy); }
-        else if(NULL!=n){ d=get_distance_from_line_seg(n, near_xy, other_near_xy); }
-        else if(NULL!=r){ d=get_distance_from_rect(r, near_xy, other_near_xy); }
-        else if(NULL!=p){ d=get_distance_from_polygon(p, near_xy, other_near_xy); }
+        else if(NULL!=n){d=get_distance_from_line_seg(n,near_xy,other_near_xy);}
+        else if(NULL!=r){ d=get_distance_from_rect(r, near_xy, other_near_xy);}
+        else if(NULL!=p){d=get_distance_from_polygon(p,near_xy,other_near_xy);}
+        else if(NULL!=i){ AA_ALWAYS_ASSERT(false);/* spline not supported */}
         else{ AA_ALWAYS_ASSERT(false); }
         }
     }
@@ -4823,11 +4971,13 @@ if(NULL != s){
     const np02_line_seg *n = dynamic_cast<const np02_line_seg *>(s);
     const np02_rect *r = dynamic_cast<const np02_rect *>(s);
     const np02_polygon *p = dynamic_cast<const np02_polygon *>(s);
+    const np02_spline *i = dynamic_cast<const np02_spline *>(s);
     if(NULL != c){ d = get_distance_from_circle(c, near_xy, other_near_xy); }
     else if(NULL!=a){ d=get_distance_from_arc(a, near_xy, other_near_xy);}
     else if(NULL!=n){ d=get_distance_from_line_seg(n, near_xy, other_near_xy);}
     else if(NULL!=r){ d=get_distance_from_rect(r, near_xy, other_near_xy); }
     else if(NULL!=p){ d=get_distance_from_polygon(p, near_xy, other_near_xy); }
+    else if(NULL!=i){ AA_ALWAYS_ASSERT(false);/* spline not supported */}
     else{ AA_ALWAYS_ASSERT(false); }
     }
 AA_DECR_CALL_DEPTH();
@@ -5809,11 +5959,13 @@ if(NULL != s){
     const np02_line_seg *n = dynamic_cast<const np02_line_seg *>(s);
     const np02_rect *r = dynamic_cast<const np02_rect *>(s);
     const np02_polygon *p = dynamic_cast<const np02_polygon *>(s);
+    const np02_spline *i = dynamic_cast<const np02_spline *>(s);
     if(NULL != c){ d = get_distance_from_circle(c, near_xy, other_near_xy); }
     else if(NULL != a){ d = get_distance_from_arc(a, near_xy, other_near_xy); }
-    else if(NULL != n){ d = get_distance_from_line_seg(n, near_xy, other_near_xy); }
-    else if(NULL != r){ d = get_distance_from_rect(r, near_xy, other_near_xy); }
-    else if(NULL != p){ d = get_distance_from_polygon(p, near_xy, other_near_xy); }
+    else if(NULL != n){ d=get_distance_from_line_seg(n,near_xy,other_near_xy);}
+    else if(NULL != r){ d = get_distance_from_rect(r, near_xy, other_near_xy);}
+    else if(NULL != p){ d=get_distance_from_polygon(p,near_xy,other_near_xy);}
+    else if(NULL != i){ AA_ALWAYS_ASSERT(false);/* spline not supported */}
     else{ AA_ALWAYS_ASSERT(false); }
     }
 AA_DECR_CALL_DEPTH();
@@ -6388,6 +6540,147 @@ np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 }
 
 void np02_polygon::write_dxf_file(const std::string& layer,
+    const uint8_t& color, np02_dxf_file *dxf_file) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+}
+
+
+
+
+np02_spline::np02_spline(){
+set_shape_type(NP02_SHAPE_TYPE_SPLINE);
+}
+
+np02_spline::~np02_spline(){}
+
+void np02_spline::np02_spline::get_bb(np02_xy *xy_min,
+    np02_xy *xy_max) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+}
+
+void np02_spline::get_loc_grid_indices_for_init(
+        const np02_loc_grid_dim& loc_grid_dim,
+        const double& extra_search_d, np02_uint16_pair_vec *index_vec)
+        const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+}
+
+double np02_spline::get_distance_from_xy(const np02_xy& xy,
+    np02_xy *near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_line_seg_ab(const np02_xy& xy_a,
+    const np02_xy& xy_b, np02_xy *near_xy,
+    np02_xy *other_near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_circle(
+    const np02_circle *c,
+    np02_xy *near_xy, np02_xy *circle_near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_arc(const np02_arc *a,
+    np02_xy *near_xy, np02_xy *arc_near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_line_seg(
+    const np02_line_seg *n, np02_xy *near_xy,
+    np02_xy *line_seg_near_xy)const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_rect(const np02_rect *r,
+    np02_xy *near_xy, np02_xy *rect_near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_polygon(
+    const np02_polygon *p, np02_xy *near_xy,
+    np02_xy *rect_near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_distance_from_shape(const np02_shape *s,
+    np02_xy *near_xy, np02_xy *other_near_xy) const{
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+void np02_spline::translate_no_loc_grid(const np02_xy& dxy){
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+}
+
+void np02_spline::rotate_no_loc_grid(const np02_xy& rot_ctr,  const double& rot_deg){
+/* TODO: implement */
+AA_ALWAYS_ASSERT(false);
+}
+
+uint64_t np02_spline::hash( const uint64_t& h_in ) const{
+uint64_t h = np02_shape::hash( h_in );
+return h;
+}
+
+int np02_spline::verify_data( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+err_cnt += np02_shape::verify_data(err_msg, err_msg_capacity, err_msg_pos);
+
+if(NP02_SHAPE_TYPE_SPLINE != get_shape_type() ){
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "spline: this=%x  shape_type=%i\n", this, get_shape_type()); 
+    }
+
+const np02_shp_alloc *shp_alloc = get_shp_alloc();
+//if((NULL != shp_alloc) && 
+//    (this != shp_alloc->alloc_get_spline_by_idx(get_shape_idx()))){
+//    ++err_cnt;
+//    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+//        "spline: this=%x  != (shp_alloc=%x) spline_by_idx(idx=%i)=%x\n",
+//        this, shp_alloc, get_shape_idx(),
+//        shp_alloc->alloc_get_spline_by_idx(get_shape_idx())); 
+//    }
+
+
+
+/* TODO: implement */
+return err_cnt;
+}
+
+std::ostream& np02_spline::ostream_output(std::ostream& os) const{
+return os;
+}
+
+void np02_spline::write_bmp_file(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
+}
+
+void np02_spline::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
 /* TODO: implement */
 AA_ALWAYS_ASSERT(false);
@@ -7481,6 +7774,8 @@ AA_DECR_CALL_DEPTH();
 
 np02_shp_alloc::np02_shp_alloc():
     /* allocator */
+    m_alloc_shape_handle_vec(),
+    m_shape_handle_free_chain(NULL),
     m_alloc_circle_vec(),
     m_circle_free_chain(NULL),
     m_alloc_arc_vec(),
@@ -7491,9 +7786,17 @@ np02_shp_alloc::np02_shp_alloc():
     m_rect_free_chain(NULL),
     m_alloc_polygon_vec(),
     m_polygon_free_chain(NULL),
+    m_alloc_spline_vec(),
+    m_spline_free_chain(NULL),
     m_alloc_loc_grid_node_vec(),
     m_loc_grid_node_free_chain(NULL),
-    m_alloc_loc_grid_vec()
+    m_alloc_loc_grid_vec(),
+    m_alloc_boundary_seg_vec(),
+    m_boundary_seg_free_chain(NULL),
+    m_alloc_boundary_vec(),
+    m_boundary_free_chain(NULL),
+    m_alloc_region_vec(),
+    m_region_free_chain(NULL)
 {
 AA_INCR_CALL_DEPTH();
 AUTO_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -7506,6 +7809,41 @@ alloc_delete_all();
 }
 
 
+np02_shape_handle *np02_shp_alloc::alloc_shape_handle(){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+np02_shape_handle *shape_handle = NULL;
+if(NULL == m_shape_handle_free_chain){
+    shape_handle = new np02_shape_handle();
+    shape_handle->set_alloc_idx(static_cast<shape_idx_type>(m_alloc_shape_handle_vec.size()));
+    shape_handle->set_shp_alloc(this);
+    m_alloc_shape_handle_vec.push_back(shape_handle);
+    }
+else{
+    shape_handle = m_shape_handle_free_chain;
+    m_shape_handle_free_chain = m_shape_handle_free_chain->get_free_chain_next();
+    shape_handle->set_free_chain_next(NULL);
+    }
+AUTO_ASSERT(0 == shape_handle->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
+    AA_ERR_BUF_POS_PTR() ));
+AA_DECR_CALL_DEPTH();
+return shape_handle;
+}
+
+void np02_shp_alloc::free_shape_handle(np02_shape_handle *shape_handle){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
+AA_ALWAYS_ASSERT( NULL != shape_handle );
+AA_ALWAYS_ASSERT( this == shape_handle->get_shp_alloc() );
+shape_handle->destruct();
+if(NULL != m_shape_handle_free_chain){
+    shape_handle->set_free_chain_next(m_shape_handle_free_chain);
+    }
+m_shape_handle_free_chain = shape_handle;
+shape_handle->set_owner_idx(NP02_SHP_HNDL_OWNER_INVALID_IDX);
+AA_DECR_CALL_DEPTH();
+}
+
 void np02_shp_alloc::free_shape(np02_shape *shape)
 {
 AA_INCR_CALL_DEPTH();
@@ -7516,6 +7854,7 @@ if(NULL != shape){
     np02_line_seg *line_seg = NULL;
     np02_rect *rect = NULL;
     np02_polygon *polygon = NULL;
+    np02_spline *spline = NULL;
     if( (circle = dynamic_cast<np02_circle *>(shape)) != NULL ){
         free_circle(circle);
         }
@@ -7530,6 +7869,9 @@ if(NULL != shape){
         }
     else if((polygon=dynamic_cast<np02_polygon *>(shape)) != NULL){
         free_polygon(polygon);
+        }
+    else if((spline=dynamic_cast<np02_spline *>(spline)) != NULL){
+        free_spline(spline);
         }
     else{ AA_ALWAYS_ASSERT(false); }
     }
@@ -7712,13 +8054,49 @@ polygon->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
 AA_DECR_CALL_DEPTH();
 }
 
+np02_spline *np02_shp_alloc::alloc_spline(){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+np02_spline *spline = NULL;
+if(NULL == m_spline_free_chain){
+    spline = new np02_spline();
+    spline->set_shape_idx(static_cast<shape_idx_type>(m_alloc_spline_vec.size()));
+    spline->set_shp_alloc(this);
+    m_alloc_spline_vec.push_back(spline);
+    }
+else{
+    spline = m_spline_free_chain;
+    m_spline_free_chain = m_spline_free_chain->get_free_chain_next();
+    spline->set_free_chain_next(NULL);
+    }
+AUTO_ASSERT(0 == spline->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
+    AA_ERR_BUF_POS_PTR() ));
+AA_DECR_CALL_DEPTH();
+return spline;
+}
+
+void np02_shp_alloc::free_spline(np02_spline *spline){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
+AA_ALWAYS_ASSERT( NULL != spline );
+AA_ALWAYS_ASSERT( this == spline->get_shp_alloc() );
+spline->destruct();
+if(NULL != m_spline_free_chain){
+    spline->set_free_chain_next(m_spline_free_chain);
+    }
+m_spline_free_chain = spline;
+spline->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+AA_DECR_CALL_DEPTH();
+}
+
 size_t np02_shp_alloc::alloc_get_total_shape_count() const{ 
 const size_t total_shape_count = 
     alloc_get_circle_count() +
     alloc_get_arc_count() +
     alloc_get_line_seg_count() +
     alloc_get_rect_count() +
-    alloc_get_polygon_count();
+    alloc_get_polygon_count() +
+    alloc_get_spline_count();
 return total_shape_count;
 }
 
@@ -7783,10 +8161,144 @@ if(NULL != loc_grid){
 AA_DECR_CALL_DEPTH();
 }
 
+np02_boundary_seg *np02_shp_alloc::alloc_boundary_seg(){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+np02_boundary_seg *boundary_seg = NULL;
+if(NULL == m_boundary_seg_free_chain){
+    boundary_seg = new np02_boundary_seg();
+    boundary_seg->set_alloc_idx(static_cast<shape_idx_type>(m_alloc_boundary_seg_vec.size()));
+    boundary_seg->set_shp_alloc(this);
+    m_alloc_boundary_seg_vec.push_back(boundary_seg);
+    }
+else{
+    boundary_seg = m_boundary_seg_free_chain;
+    m_boundary_seg_free_chain = m_boundary_seg_free_chain->get_free_chain_next();
+    boundary_seg->set_free_chain_next(NULL);
+    std::cout << boundary_seg << "\n";
+    }
+AUTO_ASSERT(0 == boundary_seg->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
+    AA_ERR_BUF_POS_PTR() ));
+AA_DECR_CALL_DEPTH();
+return boundary_seg;
+}
+
+void np02_shp_alloc::free_boundary_seg(np02_boundary_seg *boundary_seg){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
+AA_ALWAYS_ASSERT( NULL != boundary_seg );
+AA_ALWAYS_ASSERT( this == boundary_seg->get_shp_alloc() );
+boundary_seg->destruct();
+if(NULL != m_boundary_seg_free_chain){
+    boundary_seg->set_free_chain_next(m_boundary_seg_free_chain);
+    }
+m_boundary_seg_free_chain = boundary_seg;
+boundary_seg->set_owner(NULL);
+AA_DECR_CALL_DEPTH();
+}
+
+np02_boundary *np02_shp_alloc::alloc_boundary(){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+np02_boundary *boundary = NULL;
+if(NULL == m_boundary_free_chain){
+    boundary = new np02_boundary();
+    boundary->set_alloc_idx(static_cast<shape_idx_type>(m_alloc_boundary_vec.size()));
+    boundary->set_shp_alloc(this);
+    m_alloc_boundary_vec.push_back(boundary);
+    }
+else{
+    boundary = m_boundary_free_chain;
+    m_boundary_free_chain = m_boundary_free_chain->get_free_chain_next();
+    boundary->set_free_chain_next(NULL);
+    std::cout << boundary << "\n";
+    }
+AUTO_ASSERT(0 == boundary->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
+    AA_ERR_BUF_POS_PTR() ));
+AA_DECR_CALL_DEPTH();
+return boundary;
+}
+
+void np02_shp_alloc::free_boundary(np02_boundary *boundary){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
+AA_ALWAYS_ASSERT( NULL != boundary );
+AA_ALWAYS_ASSERT( this == boundary->get_shp_alloc() );
+boundary->destruct();
+if(NULL != m_boundary_free_chain){
+    boundary->set_free_chain_next(m_boundary_free_chain);
+    }
+m_boundary_free_chain = boundary;
+boundary->set_owner(NULL);
+AA_DECR_CALL_DEPTH();
+}
+
+np02_region *np02_shp_alloc::alloc_region(){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+np02_region *region = NULL;
+if(NULL == m_region_free_chain){
+    region = new np02_region();
+    region->set_alloc_idx(static_cast<shape_idx_type>(m_alloc_region_vec.size()));
+    region->set_shp_alloc(this);
+    m_alloc_region_vec.push_back(region);
+    }
+else{
+    region = m_region_free_chain;
+    m_region_free_chain = m_region_free_chain->get_free_chain_next();
+    region->set_free_chain_next(NULL);
+    std::cout << region << "\n";
+    }
+AUTO_ASSERT(0 == region->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
+    AA_ERR_BUF_POS_PTR() ));
+AA_DECR_CALL_DEPTH();
+return region;
+}
+
+void np02_shp_alloc::free_region(np02_region *region){
+AA_INCR_CALL_DEPTH();
+CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
+AA_ALWAYS_ASSERT( NULL != region );
+AA_ALWAYS_ASSERT( this == region->get_shp_alloc() );
+region->destruct();
+if(NULL != m_region_free_chain){
+    region->set_free_chain_next(m_region_free_chain);
+    }
+m_region_free_chain = region;
+region->set_owner(NULL);
+AA_DECR_CALL_DEPTH();
+}
+
 uint64_t np02_shp_alloc::hash( const uint64_t& h_in ) const{
-static const size_t max_free_chain_sz = 100000000;
+static const size_t max_free_chain_sz = 100000000; /*TODO: make static constant */
 size_t free_chain_sz = 0;
 uint64_t h = h_in;
+
+const np02_shape_handle *shape_handle = NULL;
+shape_handle_vec::const_iterator shape_handle_itr = m_alloc_shape_handle_vec.begin();
+for( ; shape_handle_itr != m_alloc_shape_handle_vec.end(); ++shape_handle_itr ){
+    shape_handle = *shape_handle_itr;
+    if( NULL == shape_handle ){
+        #if defined( CF01_SUPPORT )
+        h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
+        #else
+        h += 1;
+        h ^= ((h << 47) | (h >> 17));
+        #endif
+        }
+    else{
+        h = shape_handle->hash(h);
+        }
+    }
+
+free_chain_sz = 0;
+shape_handle = m_shape_handle_free_chain;
+while( ( NULL != shape_handle ) && ( free_chain_sz < max_free_chain_sz ) ){
+    h = shape_handle->hash(h);
+    shape_handle = shape_handle->get_free_chain_next();
+    ++free_chain_sz;
+    }
+
 
 const np02_circle *circle = NULL;
 circle_vec::const_iterator circle_itr = m_alloc_circle_vec.begin();
@@ -7812,6 +8324,7 @@ while( ( NULL != circle ) && ( free_chain_sz < max_free_chain_sz ) ){
     circle = circle->get_free_chain_next();
     ++free_chain_sz;
     }
+
 
 const np02_arc *arc = NULL;
 arc_vec::const_iterator arc_itr = m_alloc_arc_vec.begin();
@@ -7917,6 +8430,32 @@ while( ( NULL != polygon ) && ( free_chain_sz < max_free_chain_sz ) ){
     }
 
 
+const np02_spline *spline = NULL;
+spline_vec::const_iterator spline_itr = m_alloc_spline_vec.begin();
+for( ; spline_itr != m_alloc_spline_vec.end(); ++spline_itr ){
+    spline = *spline_itr;
+    if( NULL == spline ){
+        #if defined( CF01_SUPPORT )
+        h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
+        #else
+        h += 1;
+        h ^= ((h << 47) | (h >> 17));
+        #endif
+        }
+    else{
+        h = spline->hash(h);
+        }
+    }
+
+free_chain_sz = 0;
+spline = m_spline_free_chain;
+while( ( NULL != spline ) && ( free_chain_sz < max_free_chain_sz ) ){
+    h = spline->hash(h);
+    spline = spline->get_free_chain_next();
+    ++free_chain_sz;
+    }
+
+
 const np02_loc_grid_node *lg_node = NULL;
 loc_grid_node_vec::const_iterator lg_node_itr =
     m_alloc_loc_grid_node_vec.begin();
@@ -7961,19 +8500,103 @@ for( ; loc_grid_itr != m_alloc_loc_grid_vec.end(); ++loc_grid_itr ){
         }
     }
 
+
+const np02_boundary_seg *boundary_seg = NULL;
+boundary_seg_vec::const_iterator boundary_seg_itr = m_alloc_boundary_seg_vec.begin();
+for( ; boundary_seg_itr != m_alloc_boundary_seg_vec.end(); ++boundary_seg_itr ){
+    boundary_seg = *boundary_seg_itr;
+    if( NULL == boundary_seg ){
+        #if defined( CF01_SUPPORT )
+        h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
+        #else
+        h += 1;
+        h ^= ((h << 47) | (h >> 17));
+        #endif
+        }
+    else{
+        h = boundary_seg->hash(h);
+        }
+    }
+
+free_chain_sz = 0;
+boundary_seg = m_boundary_seg_free_chain;
+while( ( NULL != boundary_seg ) && ( free_chain_sz < max_free_chain_sz ) ){
+    h = boundary_seg->hash(h);
+    boundary_seg = boundary_seg->get_free_chain_next();
+    ++free_chain_sz;
+    }
+
+
+const np02_boundary *boundary = NULL;
+boundary_vec::const_iterator boundary_itr = m_alloc_boundary_vec.begin();
+for( ; boundary_itr != m_alloc_boundary_vec.end(); ++boundary_itr ){
+    boundary = *boundary_itr;
+    if( NULL == boundary ){
+        #if defined( CF01_SUPPORT )
+        h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
+        #else
+        h += 1;
+        h ^= ((h << 47) | (h >> 17));
+        #endif
+        }
+    else{
+        h = boundary->hash(h);
+        }
+    }
+
+free_chain_sz = 0;
+boundary = m_boundary_free_chain;
+while( ( NULL != boundary ) && ( free_chain_sz < max_free_chain_sz ) ){
+    h = boundary->hash(h);
+    boundary = boundary->get_free_chain_next();
+    ++free_chain_sz;
+    }
+
+
+const np02_region *region = NULL;
+region_vec::const_iterator region_itr = m_alloc_region_vec.begin();
+for( ; region_itr != m_alloc_region_vec.end(); ++region_itr ){
+    region = *region_itr;
+    if( NULL == region ){
+        #if defined( CF01_SUPPORT )
+        h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
+        #else
+        h += 1;
+        h ^= ((h << 47) | (h >> 17));
+        #endif
+        }
+    else{
+        h = region->hash(h);
+        }
+    }
+
+free_chain_sz = 0;
+region = m_region_free_chain;
+while( ( NULL != region ) && ( free_chain_sz < max_free_chain_sz ) ){
+    h = region->hash(h);
+    region = region->get_free_chain_next();
+    ++free_chain_sz;
+    }
+
+
 return h;
 }
 
 int np02_shp_alloc::verify_data( char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
 int err_cnt = 0;
+err_cnt += verify_data_alloc_shape_handle(err_msg, err_msg_capacity, err_msg_pos );
 err_cnt += verify_data_alloc_circle(err_msg, err_msg_capacity, err_msg_pos );
 err_cnt += verify_data_alloc_arc(err_msg, err_msg_capacity, err_msg_pos );
 err_cnt += verify_data_alloc_line_seg(err_msg, err_msg_capacity, err_msg_pos);
 err_cnt += verify_data_alloc_rect(err_msg, err_msg_capacity, err_msg_pos );
 err_cnt += verify_data_alloc_polygon(err_msg, err_msg_capacity, err_msg_pos );
+err_cnt += verify_data_alloc_spline(err_msg, err_msg_capacity, err_msg_pos );
 err_cnt+=verify_data_alloc_loc_grid_node(err_msg,err_msg_capacity,err_msg_pos);
 err_cnt += verify_data_alloc_loc_grid(err_msg, err_msg_capacity, err_msg_pos );
+err_cnt += verify_data_alloc_boundary_seg(err_msg, err_msg_capacity, err_msg_pos );
+err_cnt += verify_data_alloc_boundary(err_msg, err_msg_capacity, err_msg_pos );
+err_cnt += verify_data_alloc_region(err_msg, err_msg_capacity, err_msg_pos );
 return err_cnt;
 }
 
@@ -7981,8 +8604,14 @@ std::ostream& np02_shp_alloc::ostream_output(std::ostream& os) const{
 os << "<shp_alloc><this>" << std::hex << this << std::dec << "</this>\n";
 
 /* allocator */
+os << "</alloc_shape_handle_count=" << m_alloc_shape_handle_vec.size() << ">" 
+    //<< "</shape_handle_free_chain_size=" << get_shape_handle_free_chain_size() << ">"
+    << "\n";
 os << "</alloc_circle_count=" << m_alloc_circle_vec.size() << ">" 
     //<< "</circle_free_chain_size=" << get_circle_free_chain_size() << ">"
+    << "\n";
+os << "</alloc_arc_count=" << m_alloc_arc_vec.size() << ">" 
+    //<< "</arc_free_chain_size=" << get_arc_free_chain_size() << ">"
     << "\n";
 os << "</alloc_line_seg_count=" << m_alloc_line_seg_vec.size() << ">" 
     //<< "</cline_seg_free_chain_size=" << get_line_seg_free_chain_size() << ">"
@@ -7993,10 +8622,22 @@ os << "</alloc_rect_count=" << m_alloc_rect_vec.size() << ">"
 os << "</alloc_polygon_count=" << m_alloc_polygon_vec.size() << ">" 
     //<< "</polygon_free_chain_size=" << get_polygon_free_chain_size() << ">"
     << "\n";
+os << "</alloc_spline_count=" << m_alloc_spline_vec.size() << ">" 
+    //<< "</spline_free_chain_size=" << get_spline_free_chain_size() << ">"
+    << "\n";
 os << "</alloc_loc_grid_node_count=" << m_alloc_loc_grid_node_vec.size() << ">" 
     //<< "</loc_grid_node_free_chain_size=" << get_loc_grid_node_free_chain_size() << ">"
     << "\n";
 os << "</alloc_loc_grid_count=" << m_alloc_loc_grid_vec.size() << ">" << "\n";
+os << "</alloc_boundary_seg_count=" << m_alloc_boundary_seg_vec.size() << ">" 
+    //<< "</boundary_seg_free_chain_size=" << get_boundary_seg_free_chain_size() << ">"
+    << "\n";
+os << "</alloc_boundary_count=" << m_alloc_boundary_vec.size() << ">" 
+    //<< "</boundary_free_chain_size=" << get_boundary_free_chain_size() << ">"
+    << "\n";
+os << "</alloc_region_count=" << m_alloc_region_vec.size() << ">" 
+    //<< "</region_free_chain_size=" << get_region_free_chain_size() << ">"
+    << "\n";
 os << "</shp_alloc>\n";
 
 return os;
@@ -8005,6 +8646,14 @@ return os;
 /* destructor implementation.  Delete all objects. */
 void np02_shp_alloc::alloc_delete_all(){
 AA_INCR_CALL_DEPTH();
+while (NULL != m_shape_handle_free_chain) {
+    np02_shape_handle *shape_handle = m_shape_handle_free_chain;
+    m_shape_handle_free_chain = m_shape_handle_free_chain->get_free_chain_next();
+    shape_handle->set_free_chain_next(NULL);
+    delete shape_handle;
+    }
+m_alloc_shape_handle_vec.clear();
+
 while (NULL != m_circle_free_chain) {
     np02_circle *circle = m_circle_free_chain;
     m_circle_free_chain = m_circle_free_chain->get_free_chain_next();
@@ -8046,6 +8695,14 @@ while (NULL != m_polygon_free_chain) {
     }
 m_alloc_polygon_vec.clear();
 
+while (NULL != m_spline_free_chain) {
+    np02_spline *spline = m_spline_free_chain;
+    m_spline_free_chain = m_spline_free_chain->get_free_chain_next();
+    spline->set_free_chain_next(NULL);
+    delete spline;
+    }
+m_alloc_spline_vec.clear();
+
 while (NULL != m_loc_grid_node_free_chain) {
     np02_loc_grid_node *loc_grid_node = m_loc_grid_node_free_chain;
     m_loc_grid_node_free_chain =
@@ -8063,7 +8720,86 @@ for(loc_grid_vec::const_iterator loc_grid_itr = m_alloc_loc_grid_vec.begin();
     }
 m_alloc_loc_grid_vec.clear();
 
+while (NULL != m_boundary_seg_free_chain) {
+    np02_boundary_seg *boundary_seg = m_boundary_seg_free_chain;
+    m_boundary_seg_free_chain = m_boundary_seg_free_chain->get_free_chain_next();
+    boundary_seg->set_free_chain_next(NULL);
+    delete boundary_seg;
+    }
+m_alloc_boundary_seg_vec.clear();
+
+while (NULL != m_boundary_free_chain) {
+    np02_boundary *boundary = m_boundary_free_chain;
+    m_boundary_free_chain = m_boundary_free_chain->get_free_chain_next();
+    boundary->set_free_chain_next(NULL);
+    delete boundary;
+    }
+m_alloc_boundary_vec.clear();
+
+while (NULL != m_region_free_chain) {
+    np02_region *region = m_region_free_chain;
+    m_region_free_chain = m_region_free_chain->get_free_chain_next();
+    region->set_free_chain_next(NULL);
+    delete region;
+    }
+m_alloc_region_vec.clear();
+
 AA_DECR_CALL_DEPTH();
+}
+
+int np02_shp_alloc::verify_data_alloc_shape_handle( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+size_t i;
+const np02_shape_handle *shape_handle = NULL;
+for(i = 0; i < m_alloc_shape_handle_vec.size(); ++i){
+    shape_handle = m_alloc_shape_handle_vec.at(i);
+    if(NULL == shape_handle){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  m_alloc_shape_handle_vec.at(%i)=NULL\n",
+            this, i ); 
+        }
+    else{
+        if(shape_handle->get_alloc_idx() != i){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  shape_handle(%i)=%x->alloc_idx=%i\n",
+                this, i, shape_handle, shape_handle->get_alloc_idx() );
+            }
+        const np02_shp_alloc *shape_handle_shp_alloc = shape_handle->get_shp_alloc();
+        if((NULL != shape_handle_shp_alloc) && (this != shape_handle_shp_alloc)){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  != shape_handle(%i)=%x -> shp_alloc=%x\n",
+                this, i, shape_handle, shape_handle_shp_alloc ); 
+            }
+        }
+    }
+
+i=0;
+shape_handle=m_shape_handle_free_chain;
+while((NULL != shape_handle) && (i < m_alloc_shape_handle_vec.size())){
+    const size_t shape_handle_alloc_idx = shape_handle->get_alloc_idx();
+    if(m_alloc_shape_handle_vec.size() <= shape_handle_alloc_idx){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain shape_handle %i "
+            "alloc_idx=%i >= vec sz=%i\n", this, i, shape_handle_alloc_idx,
+            m_alloc_shape_handle_vec.size() ); 
+        }
+    else if(m_alloc_shape_handle_vec.at(shape_handle_alloc_idx) != shape_handle){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain shape_handle %i =%x"
+            " != vec.at(alloc_idx=%i) = %x\n", this, i, shape_handle, shape_handle_alloc_idx,
+            m_alloc_shape_handle_vec.at(shape_handle_alloc_idx) ); 
+        }
+    
+    ++i;
+    shape_handle = shape_handle->get_free_chain_next();
+    }
+return err_cnt;
 }
 
 int np02_shp_alloc::verify_data_alloc_circle( char *err_msg,
@@ -8341,6 +9077,61 @@ while((NULL != polygon) && (i < m_alloc_polygon_vec.size())){
 return err_cnt;
 }
 
+int np02_shp_alloc::verify_data_alloc_spline( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+size_t i;
+const np02_spline *spline = NULL;
+for(i = 0; i < m_alloc_spline_vec.size(); ++i){
+    spline = m_alloc_spline_vec.at(i);
+    if(NULL == spline){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  m_alloc_spline_vec.at(%i)=NULL\n",
+            this, i ); 
+        }
+    else{
+        if(spline->get_shape_idx() != i){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  spline(%i)=%x->shape_idx=%i\n",
+                this, i, spline, spline->get_shape_idx() );
+            }
+        const np02_shp_alloc *spline_shp_alloc = spline->get_shp_alloc();
+        if((NULL != spline_shp_alloc) && (this != spline_shp_alloc)){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  != spline(%i)=%x -> shp_alloc=%x\n",
+                this, i, spline, spline_shp_alloc ); 
+            }
+        }
+    }
+
+i=0;
+spline=m_spline_free_chain;
+while((NULL != spline) && (i < m_alloc_spline_vec.size())){
+    const size_t spline_shp_idx = spline->get_shape_idx();
+    if(m_alloc_spline_vec.size() <= spline_shp_idx){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain spline %i "
+            "shp_idx=%i >= vec sz=%i\n", this, i, spline_shp_idx,
+            m_alloc_spline_vec.size() ); 
+        }
+    else if(m_alloc_spline_vec.at(spline_shp_idx) != spline){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain spline %i =%x"
+            " != vec.at(shp_idx=%i) = %x\n", this, i, spline, spline_shp_idx,
+            m_alloc_spline_vec.at(spline_shp_idx) ); 
+        }
+    
+    ++i;
+    spline = spline->get_free_chain_next();
+    }
+return err_cnt;
+}
+
 int np02_shp_alloc::verify_data_alloc_loc_grid_node( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
@@ -8420,6 +9211,171 @@ for(i = 0; i < m_alloc_loc_grid_vec.size(); ++i){
         }
     }
 
+return err_cnt;
+}
+
+int np02_shp_alloc::verify_data_alloc_boundary_seg( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+size_t i;
+const np02_boundary_seg *boundary_seg = NULL;
+for(i = 0; i < m_alloc_boundary_seg_vec.size(); ++i){
+    boundary_seg = m_alloc_boundary_seg_vec.at(i);
+    if(NULL == boundary_seg){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  m_alloc_boundary_seg_vec.at(%i)=NULL\n",
+            this, i ); 
+        }
+    else{
+        if(boundary_seg->get_alloc_idx() != i){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  boundary_seg(%i)=%x->alloc_idx=%i\n",
+                this, i, boundary_seg, boundary_seg->get_alloc_idx() );
+            }
+        const np02_shp_alloc *boundary_seg_shp_alloc = boundary_seg->get_shp_alloc();
+        if((NULL != boundary_seg_shp_alloc) && (this != boundary_seg_shp_alloc)){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  != boundary_seg(%i)=%x -> shp_alloc=%x\n",
+                this, i, boundary_seg, boundary_seg_shp_alloc ); 
+            }
+        }
+    }
+
+i=0;
+boundary_seg=m_boundary_seg_free_chain;
+while((NULL != boundary_seg) && (i < m_alloc_boundary_seg_vec.size())){
+    const size_t boundary_seg_alloc_idx = boundary_seg->get_alloc_idx();
+    if(m_alloc_boundary_seg_vec.size() <= boundary_seg_alloc_idx){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain boundary_seg %i "
+            "alloc_idx=%i >= vec sz=%i\n", this, i, boundary_seg_alloc_idx,
+            m_alloc_boundary_seg_vec.size() ); 
+        }
+    else if(m_alloc_boundary_seg_vec.at(boundary_seg_alloc_idx) != boundary_seg){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain boundary_seg %i =%x"
+            " != vec.at(alloc_idx=%i) = %x\n", this, i, boundary_seg, boundary_seg_alloc_idx,
+            m_alloc_boundary_seg_vec.at(boundary_seg_alloc_idx) ); 
+        }
+    
+    ++i;
+    boundary_seg = boundary_seg->get_free_chain_next();
+    }
+return err_cnt;
+}
+
+int np02_shp_alloc::verify_data_alloc_boundary( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+size_t i;
+const np02_boundary *boundary = NULL;
+for(i = 0; i < m_alloc_boundary_vec.size(); ++i){
+    boundary = m_alloc_boundary_vec.at(i);
+    if(NULL == boundary){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  m_alloc_boundary_vec.at(%i)=NULL\n",
+            this, i ); 
+        }
+    else{
+        if(boundary->get_alloc_idx() != i){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  boundary(%i)=%x->alloc_idx=%i\n",
+                this, i, boundary, boundary->get_alloc_idx() );
+            }
+        const np02_shp_alloc *boundary_shp_alloc = boundary->get_shp_alloc();
+        if((NULL != boundary_shp_alloc) && (this != boundary_shp_alloc)){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  != boundary(%i)=%x -> shp_alloc=%x\n",
+                this, i, boundary, boundary_shp_alloc ); 
+            }
+        }
+    }
+
+i=0;
+boundary=m_boundary_free_chain;
+while((NULL != boundary) && (i < m_alloc_boundary_vec.size())){
+    const size_t boundary_alloc_idx = boundary->get_alloc_idx();
+    if(m_alloc_boundary_vec.size() <= boundary_alloc_idx){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain boundary %i "
+            "alloc_idx=%i >= vec sz=%i\n", this, i, boundary_alloc_idx,
+            m_alloc_boundary_vec.size() ); 
+        }
+    else if(m_alloc_boundary_vec.at(boundary_alloc_idx) != boundary){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain boundary %i =%x"
+            " != vec.at(alloc_idx=%i) = %x\n", this, i, boundary, boundary_alloc_idx,
+            m_alloc_boundary_vec.at(boundary_alloc_idx) ); 
+        }
+    
+    ++i;
+    boundary = boundary->get_free_chain_next();
+    }
+return err_cnt;
+}
+
+int np02_shp_alloc::verify_data_alloc_region( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+size_t i;
+const np02_region *region = NULL;
+for(i = 0; i < m_alloc_region_vec.size(); ++i){
+    region = m_alloc_region_vec.at(i);
+    if(NULL == region){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  m_alloc_region_vec.at(%i)=NULL\n",
+            this, i ); 
+        }
+    else{
+        if(region->get_alloc_idx() != i){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  region(%i)=%x->alloc_idx=%i\n",
+                this, i, region, region->get_alloc_idx() );
+            }
+        const np02_shp_alloc *region_shp_alloc = region->get_shp_alloc();
+        if((NULL != region_shp_alloc) && (this != region_shp_alloc)){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shp_alloc: this=%x  != region(%i)=%x -> shp_alloc=%x\n",
+                this, i, region, region_shp_alloc ); 
+            }
+        }
+    }
+
+i=0;
+region=m_region_free_chain;
+while((NULL != region) && (i < m_alloc_region_vec.size())){
+    const size_t region_alloc_idx = region->get_alloc_idx();
+    if(m_alloc_region_vec.size() <= region_alloc_idx){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain region %i "
+            "alloc_idx=%i >= vec sz=%i\n", this, i, region_alloc_idx,
+            m_alloc_region_vec.size() ); 
+        }
+    else if(m_alloc_region_vec.at(region_alloc_idx) != region){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shp_alloc: this=%x  free chain region %i =%x"
+            " != vec.at(alloc_idx=%i) = %x\n", this, i, region, region_alloc_idx,
+            m_alloc_region_vec.at(region_alloc_idx) ); 
+        }
+    
+    ++i;
+    region = region->get_free_chain_next();
+    }
 return err_cnt;
 }
 
