@@ -124,16 +124,30 @@ np02_shape_owner::~np02_shape_owner(){
 }
 
 uint64_t np02_shape_owner::hash( const uint64_t& h_in ) const{
-/*TODO: implement */
-return 0;
+uint64_t h = h_in;
+return h;
 }
 
 int np02_shape_owner::verify_data( char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
 int err_cnt = 0;
-const np02_shape *shape = get_shape();
+const np02_shape * const shape = get_shape();
 if( NULL != shape ){
-    /*TODO: check that shape->get_owner() == this */
+    if( this != shape->get_shape_owner() ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape_owner: this=%x != (shape=%x)->owner=%x\n",
+             this, shape, shape->get_shape_owner()); 
+        }
+
+    const np02_shp_alloc * const shp_alloc = get_shp_alloc();
+    const np02_shp_alloc * const shp_shp_alloc = shape->get_shp_alloc();
+    if( shp_alloc != shp_shp_alloc ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape_owner: (this=%x) shp_alloc=%x != (shape=%x)->shp_alloc=%x\n",
+             this, shp_alloc, shape, shp_shp_alloc); 
+        }
     }
 return err_cnt;
 }
@@ -145,7 +159,15 @@ np02_shape_handle::np02_shape_handle(): np02_shape_owner(), m_shp_alloc(NULL),
 }
 
 np02_shape_handle::~np02_shape_handle(){
+destruct();
+}
+
+void np02_shape_handle::destruct(){
 clear_shp_rgn();
+}
+
+np02_shp_alloc *np02_shape_handle::get_shp_alloc() const{
+return m_shp_alloc;
 }
 
 void np02_shape_handle::set_shape(np02_shape *shape){
@@ -207,19 +229,114 @@ return region;
 }
 
 uint64_t np02_shape_handle::hash( const uint64_t& h_in ) const{
-/*TODO: implement */
-return 0;
+uint64_t h = h_in;
+#if defined( CF01_SUPPORT )
+h = cf01_obj_hash( h, m_alloc_idx );
+h = cf01_obj_hash( h, m_hndl_type );
+#else
+h += reinterpret_cast<cf01_uint64>(m_alloc_idx);
+h ^= ((h << 27) | (h >> 37));
+h += reinterpret_cast<cf01_uint64>(m_hndl_type);
+h ^= ((h << 27) | (h >> 37));
+#endif
+switch(m_hndl_type){
+    case NP02_SHAPE_HANDLE_TYPE_SHAPE:
+        if ( NULL != m_object_ptr.m_shape ){
+            h = m_object_ptr.m_shape->hash(h);
+            }
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_REGION:
+        if ( NULL != m_object_ptr.m_region ){
+            h = m_object_ptr.m_region->hash(h);
+            }
+        break;
+    case NP02_SHAPE_HANDLE_TYPE_FREE_CHAIN: /* fall through */
+    case NP02_SHAPE_HANDLE_TYPE_COUNT: /* fall through */
+    default:
+        break;
+    }
+return h;
 }
 
 int np02_shape_handle::verify_data( char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
 int err_cnt = 0;
 err_cnt += np02_shape_owner::verify_data(err_msg,err_msg_capacity,err_msg_pos);
-/* TODO: check m_shape points to this */
-/* TODO: check m_region points to this */
-/* TODO: check m_shp_alloc contains this */
-/* TODO: check m_shp_alloc matches m_shape */
-/* TODO: check m_shp_alloc matches m_region */
+if( NULL == m_shp_alloc ){
+    if( 0 != m_alloc_idx ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape_handle: this=%x  shp_alloc NULL  m_alloc_idx=%i\n",
+            this, m_alloc_idx); 
+        }
+    } 
+else{
+    const np02_shape_handle *sa_shp_hndl =
+        m_shp_alloc->alloc_get_shape_handle_by_idx(m_alloc_idx);
+    if( this != sa_shp_hndl ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape_handle: this=%x  !=  (shp_alloc=%x)->"
+            "alloc_get_shape_handle_by_idx(m_alloc_idx=%i)=%x\n",
+            this, m_shp_alloc, m_alloc_idx, sa_shp_hndl); 
+        }
+    }
+
+if( NP02_SHAPE_HANDLE_TYPE_SHAPE == m_hndl_type ){
+    if ( NULL != m_object_ptr.m_shape ){
+        err_cnt += m_object_ptr.m_shape->verify_data(err_msg,err_msg_capacity,
+            err_msg_pos);
+        const np02_shape_owner *shp_owner =
+            m_object_ptr.m_shape->get_shape_owner();
+        if( this != shp_owner ){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shape_handle: this=%x  !=  (shape=%x)->owner=%x\n",
+                this, m_object_ptr.m_shape, shp_owner);
+            }
+        const np02_shp_alloc *shp_shp_alloc =
+            m_object_ptr.m_shape->get_shp_alloc();
+        if( shp_shp_alloc != m_shp_alloc ){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shape_handle: (this=%x) shp_alloc=%x  !=  "
+                "(shape=%x)->shp_alloc=%x\n",
+                this, m_shp_alloc, m_object_ptr.m_shape, shp_shp_alloc);
+            }
+        }
+    }
+else if( NP02_SHAPE_HANDLE_TYPE_REGION == m_hndl_type ){
+    if ( NULL != m_object_ptr.m_region ){
+        err_cnt += m_object_ptr.m_region->verify_data(err_msg,err_msg_capacity,
+            err_msg_pos);
+        const np02_shape_handle *shp_hndl = m_object_ptr.m_region->get_owner();
+        if( this != shp_hndl ){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shape_handle: this=%x  !=  (region=%x)->owner=%x\n",
+                this, m_object_ptr.m_region, shp_hndl);
+            }
+        const np02_shp_alloc *rgn_shp_alloc =
+            m_object_ptr.m_region->get_shp_alloc();
+        if( rgn_shp_alloc != m_shp_alloc ){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "shape_handle: (this=%x) shp_alloc=%x  !=  "
+                "(region=%x)->shp_alloc=%x\n",
+                this, m_shp_alloc, m_object_ptr.m_region, rgn_shp_alloc);
+            }
+        }
+    }
+else if( NP02_SHAPE_HANDLE_TYPE_FREE_CHAIN == m_hndl_type ){
+    if ( NULL != m_object_ptr.m_free_chain_next ){
+        /*  */
+        }
+    }
+else{
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "shape_handle: (this=%x)->m_hndl_type=%i\n", this, m_hndl_type);
+    }
 return err_cnt;
 }
 
@@ -245,7 +362,7 @@ switch ( m_hndl_type ){
                 delete  m_object_ptr.m_region;
                 }
             else{
-                /*TODO: m_shp_alloc->free_region(m_object_ptr.m_region); */
+                m_shp_alloc->free_region(m_object_ptr.m_region);
                 }
             m_object_ptr.m_region = NULL;
             }
@@ -415,8 +532,11 @@ AA_XDBG_ASSERT( fabs( 1.0 - ( ( (*cos_rot) * (*cos_rot) ) +
 }
 
 np02_shape::np02_shape():m_shape_type(NP02_SHAPE_TYPE_SHAPE),
-    m_shape_idx(0), m_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX),
-    m_shp_alloc(NULL),  m_head_loc_grid_node(NULL){}
+    m_orientation(NP02_SHAPE_ORIENTATION_COUNT),
+    m_invert_status(NP02_SHAPE_INVERT_STATUS_COUNT),
+    m_pad(0), m_shape_idx(0), m_shape_owner(NULL),
+    m_shp_alloc(NULL),  m_head_loc_grid_node(NULL), 
+    m_free_chain_next(NULL){}
 
 double np02_shape::get_small_distance() const{
 static const double default_small_distance = np02_shape::m_small_ratio;
@@ -430,17 +550,9 @@ return small_d;
 void np02_shape::destruct(){
 if(NULL != m_head_loc_grid_node ){
     np02_loc_grid *loc_grid = m_head_loc_grid_node->get_loc_grid();
-    /* m_head_loc_grid_node is used as free chain pointer, so
-    m_head_loc_grid_node->get_loc_grid() might be NULL if 
-    m_shp_owner_idx is invalid */
-    AA_ALWAYS_ASSERT( (NULL != loc_grid) ||
-       (NP02_SHP_OWNER_INVALID_IDX == m_shp_owner_idx) )
     if(NULL != loc_grid){
         loc_grid->remove_shape_from_loc_grid(this);
         }
-
-    /* reset locator grid pointer to NULL, though likely soon
-    afterwards, shp_alloc will use it as a free chain pointer. */
     m_head_loc_grid_node = NULL;
     }
 }
@@ -763,6 +875,22 @@ AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
+void np02_shape::bb_merge(
+    const np02_xy& bb_a_xy_min, const np02_xy& bb_a_xy_max,
+    const np02_xy& bb_b_xy_min, const np02_xy& bb_b_xy_max,
+    np02_xy *bb_c_xy_min, np02_xy *bb_c_xy_max ){
+AA_ALWAYS_ASSERT(NULL != bb_c_xy_min);
+AA_ALWAYS_ASSERT(NULL != bb_c_xy_max);
+bb_c_xy_min->set_x( (bb_a_xy_min.get_x() < bb_b_xy_min.get_x()) ? 
+                     bb_a_xy_min.get_x() : bb_b_xy_min.get_x() );
+bb_c_xy_min->set_y( (bb_a_xy_min.get_y() < bb_b_xy_min.get_y()) ? 
+                     bb_a_xy_min.get_y() : bb_b_xy_min.get_y() );
+bb_c_xy_max->set_x( (bb_a_xy_max.get_x() > bb_b_xy_max.get_x()) ? 
+                     bb_a_xy_max.get_x() : bb_b_xy_max.get_x() );
+bb_c_xy_max->set_y( (bb_a_xy_max.get_y() > bb_b_xy_max.get_y()) ? 
+                     bb_a_xy_max.get_y() : bb_b_xy_max.get_y() );
+}
+
 /*
 >0  ==> bounding boxes separated
 <0  ==> bounding boxes overlap
@@ -782,28 +910,37 @@ uint64_t np02_shape::hash( const uint64_t& h_in ) const{
 uint64_t h = h_in;
 #if defined( CF01_SUPPORT )
 h = cf01_obj_hash( h, m_shape_type );
+h = cf01_obj_hash( h, m_orientation );
+h = cf01_obj_hash( h, m_invert_status );
+AUTO_ASSERT( 0 == m_pad );
 h = cf01_obj_hash( h, m_shape_idx );
-h = cf01_obj_hash( h, m_shp_owner_idx );
+if( NULL != m_shape_owner ){
+    h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
+    }
 if( NULL != m_shp_alloc ){
     h = cf01_obj_hash( h, static_cast<uint8_t>(1) );
     }
 #else
 h += reinterpret_cast<cf01_uint64>(m_shape_type);
 h ^= ((h << 27) | (h >> 37));
+h += reinterpret_cast<cf01_uint64>(m_orientation);
+h ^= ((h << 27) | (h >> 37));
+h += reinterpret_cast<cf01_uint64>(m_invert_status);
+h ^= ((h << 27) | (h >> 37));
+AUTO_ASSERT( 0 == m_pad );
 h += reinterpret_cast<cf01_uint64>(m_shape_idx);
 h ^= ((h << 37) | (h >> 27));
-h += reinterpret_cast<cf01_uint64>(m_shp_owner_idx);
-h ^= ((h << 47) | (h >> 17));
+if( NULL != m_shape_owner ){
+    h += 1;
+    h ^= ((h << 47) | (h >> 17));
+    }
 if( NULL != m_shp_alloc ){
     h += 1;
     h ^= ((h << 47) | (h >> 17));
     }
 #endif
 
-/* m_head_loc_grid_node is used as free chain pointer, so
-check if m_shp_owner_idx is invalid */
-if( ( NULL != m_head_loc_grid_node ) && 
-    ( NP02_SHP_OWNER_INVALID_IDX != m_shp_owner_idx ) ){ 
+if( NULL != m_head_loc_grid_node ){ 
     h = m_head_loc_grid_node->hash( h );
     const np02_loc_grid_node *p = m_head_loc_grid_node->get_s_prev();
     while( NULL != p ){ 
@@ -822,23 +959,54 @@ return h;
 int np02_shape::verify_data( char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
 int err_cnt = 0;
-if((m_shape_type < NP02_SHAPE_TYPE_SHAPE ) ||
-    ( m_shape_type > NP02_SHAPE_TYPE_COUNT)){
+if( m_shape_type > NP02_SHAPE_TYPE_COUNT){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
             "shape: this=%x  m_shape_type=%i\n", this, m_shape_type); 
     }
+
+if( m_orientation > NP02_SHAPE_ORIENTATION_COUNT ){
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape: this=%x  m_orientation=%i\n", this, m_orientation); 
+    }
+
+if( m_invert_status > NP02_SHAPE_INVERT_STATUS_COUNT ){
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape: this=%x  m_invert_status=%i\n", this, m_invert_status); 
+    }
+
+if( 0 != m_pad ){
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape: this=%x  m_pad=%i\n", this, m_pad); 
+    }
+
 if(m_shape_idx > NP02_SHAPE_MAX_IDX){
     ++err_cnt;
     np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
             "shape: this=%x  m_shape_idx=%i\n", this, m_shape_idx); 
     }
 
-/* m_head_loc_grid_node is used as free chain pointer, so
-m_head_loc_grid_node->get_loc_grid() might be NULL if 
-m_shp_owner_idx is invalid */
-if(( NULL != m_head_loc_grid_node) && 
-    (NP02_SHP_OWNER_INVALID_IDX == m_shp_owner_idx) ){
+if( NULL != m_shape_owner ){
+    const np02_shape * const ownr_shp = m_shape_owner->get_shape();
+    if( this != ownr_shp ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape: this=%x != (owner=%x)->shape=%x\n", this,
+            m_shape_owner, ownr_shp); 
+        }
+    const np02_shp_alloc * const ownr_shp_alloc=m_shape_owner->get_shp_alloc();
+    if( m_shp_alloc != ownr_shp_alloc ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "shape: this=%x shp_alloc=%x  !=  (owner=%x)->shp_alloc=%x\n",
+            this, m_shp_alloc, m_shape_owner, ownr_shp_alloc); 
+        }
+    }
+
+if( NULL != m_head_loc_grid_node){
     const np02_loc_grid *loc_grid = m_head_loc_grid_node->get_loc_grid();
     np02_loc_grid_dim loc_grid_dim;
     if(NULL == loc_grid){
@@ -907,12 +1075,16 @@ os << "<shape>\n";
 os << std::hex;
 os << "<this>" << this << "</this>\n";
 os << std::dec;
-os << "<shape_type>" << static_cast<int>(m_shape_type) << "</shape_type>\n";
+os << "<shape_type>" << m_shape_type << "</shape_type>\n";
+os << "<orientation>" << m_orientation << "</orientation>\n";
+os << "<invert_status>" << m_invert_status << "</invert_status>\n";
+AUTO_ASSERT( 0 == m_pad );
 os << "<shape_idx>" << m_shape_idx << "</shape_idx>\n";
-os << "<shp_owner_idx>" << m_shp_owner_idx << "</shp_owner_idx>\n";
 os << std::hex;
+os << "<shape_owner>" << m_shape_owner << "</shape_owner>\n";
 os << "<shp_alloc>" << m_shp_alloc << "</shp_alloc>\n";
 os << "<head_loc_grid_node>" << m_head_loc_grid_node << "</head_loc_grid_node>\n";
+os << "<m_free_chain_next>" << m_free_chain_next << "</m_free_chain_next>\n";
 os << std::dec;
 os << "</shape>\n";
 return os;
@@ -2440,7 +2612,8 @@ AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
 
 double d = 0.0;
-/* TODO: implement */
+/* TODO: implement polygon */
+AA_ALWAYS_ASSERT(false);
 
 AA_DECR_CALL_DEPTH();
 return d;
@@ -4956,7 +5129,8 @@ return d;
 
 double np02_rect::get_distance_from_polygon(const np02_polygon *p,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
+AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
@@ -5943,7 +6117,7 @@ return d;
 double np02_line_seg::get_distance_from_polygon(
     const np02_polygon *p,  np02_xy *near_xy,
     np02_xy *rect_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6411,7 +6585,7 @@ m_vertices.erase(unique_end, m_vertices.end());
 
 void np02_polygon::np02_polygon::get_bb(np02_xy *xy_min,
     np02_xy *xy_max) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 }
 
@@ -6419,13 +6593,13 @@ void np02_polygon::get_loc_grid_indices_for_init(
         const np02_loc_grid_dim& loc_grid_dim,
         const double& extra_search_d, np02_uint16_pair_vec *index_vec)
         const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 }
 
 double np02_polygon::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6433,7 +6607,7 @@ return 0.0;
 double np02_polygon::get_distance_from_line_seg_ab(const np02_xy& xy_a,
     const np02_xy& xy_b, np02_xy *near_xy,
     np02_xy *other_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6441,14 +6615,14 @@ return 0.0;
 double np02_polygon::get_distance_from_circle(
     const np02_circle *c,
     np02_xy *near_xy, np02_xy *circle_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 double np02_polygon::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6456,14 +6630,14 @@ return 0.0;
 double np02_polygon::get_distance_from_line_seg(
     const np02_line_seg *n, np02_xy *near_xy,
     np02_xy *line_seg_near_xy)const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 double np02_polygon::get_distance_from_rect(const np02_rect *r,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6471,25 +6645,25 @@ return 0.0;
 double np02_polygon::get_distance_from_polygon(
     const np02_polygon *p, np02_xy *near_xy,
     np02_xy *rect_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 double np02_polygon::get_distance_from_shape(const np02_shape *s,
     np02_xy *near_xy, np02_xy *other_near_xy) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 void np02_polygon::translate_no_loc_grid(const np02_xy& dxy){
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 }
 
 void np02_polygon::rotate_no_loc_grid(const np02_xy& rot_ctr,  const double& rot_deg){
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 }
 
@@ -6525,7 +6699,7 @@ if((NULL != shp_alloc) &&
 
 
 
-/* TODO: implement */
+/* TODO: implement polygon */
 return err_cnt;
 }
 
@@ -6541,7 +6715,7 @@ np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 
 void np02_polygon::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
-/* TODO: implement */
+/* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 }
 
@@ -6556,7 +6730,7 @@ np02_spline::~np02_spline(){}
 
 void np02_spline::np02_spline::get_bb(np02_xy *xy_min,
     np02_xy *xy_max) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 }
 
@@ -6564,13 +6738,13 @@ void np02_spline::get_loc_grid_indices_for_init(
         const np02_loc_grid_dim& loc_grid_dim,
         const double& extra_search_d, np02_uint16_pair_vec *index_vec)
         const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 }
 
 double np02_spline::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6578,7 +6752,7 @@ return 0.0;
 double np02_spline::get_distance_from_line_seg_ab(const np02_xy& xy_a,
     const np02_xy& xy_b, np02_xy *near_xy,
     np02_xy *other_near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6586,14 +6760,14 @@ return 0.0;
 double np02_spline::get_distance_from_circle(
     const np02_circle *c,
     np02_xy *near_xy, np02_xy *circle_near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 double np02_spline::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6601,14 +6775,14 @@ return 0.0;
 double np02_spline::get_distance_from_line_seg(
     const np02_line_seg *n, np02_xy *near_xy,
     np02_xy *line_seg_near_xy)const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 double np02_spline::get_distance_from_rect(const np02_rect *r,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
@@ -6616,25 +6790,25 @@ return 0.0;
 double np02_spline::get_distance_from_polygon(
     const np02_polygon *p, np02_xy *near_xy,
     np02_xy *rect_near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 double np02_spline::get_distance_from_shape(const np02_shape *s,
     np02_xy *near_xy, np02_xy *other_near_xy) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
 }
 
 void np02_spline::translate_no_loc_grid(const np02_xy& dxy){
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 }
 
 void np02_spline::rotate_no_loc_grid(const np02_xy& rot_ctr,  const double& rot_deg){
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 }
 
@@ -6666,7 +6840,7 @@ const np02_shp_alloc *shp_alloc = get_shp_alloc();
 
 
 
-/* TODO: implement */
+/* TODO: implement spline */
 return err_cnt;
 }
 
@@ -6682,7 +6856,7 @@ np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 
 void np02_spline::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
-/* TODO: implement */
+/* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 }
 
@@ -6981,7 +7155,6 @@ if( NULL != m_loc_grid ) {
     }
 
 if(NULL != m_owner){
-    const shp_owner_idx_type shp_owner_idx = m_owner->get_shp_owner_index();
     const np02_shp_alloc *shape_shp_alloc = (NULL == m_owner) ?
         NULL : m_owner->get_shp_alloc();
     if(shape_shp_alloc != loc_grid_shp_alloc){
@@ -7771,6 +7944,7 @@ AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
 AA_DECR_CALL_DEPTH();
 }
 
+const size_t np02_shp_alloc::m_max_free_chain_sz = 0x7FFFFFFF;
 
 np02_shp_alloc::np02_shp_alloc():
     /* allocator */
@@ -7909,7 +8083,11 @@ if(NULL != m_circle_free_chain){
     circle->set_free_chain_next(m_circle_free_chain);
     }
 m_circle_free_chain = circle;
-circle->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+
+/* TODO: decide whether to keep the assert or keep the assignment*/
+AA_ALWAYS_ASSERT( NULL == circle->get_shape_owner() );
+circle->set_shape_owner(NULL);
+
 AA_DECR_CALL_DEPTH();
 }
 
@@ -7945,7 +8123,11 @@ if(NULL != m_arc_free_chain){
     arc->set_free_chain_next(m_arc_free_chain);
     }
 m_arc_free_chain = arc;
-arc->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+
+/* TODO: decide whether to keep the assert or keep the assignment*/
+AA_ALWAYS_ASSERT( NULL == arc->get_shape_owner() );
+arc->set_shape_owner(NULL);
+
 AA_DECR_CALL_DEPTH();
 }
 
@@ -7980,7 +8162,11 @@ if(NULL != m_line_seg_free_chain){
     line_seg->set_free_chain_next(m_line_seg_free_chain);
     }
 m_line_seg_free_chain = line_seg;
-line_seg->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+
+/* TODO: decide whether to keep the assert or keep the assignment*/
+AA_ALWAYS_ASSERT( NULL == line_seg->get_shape_owner() );
+line_seg->set_shape_owner(NULL);
+
 AA_DECR_CALL_DEPTH();
 }
 
@@ -8015,7 +8201,11 @@ if(NULL != m_rect_free_chain){
     rect->set_free_chain_next(m_rect_free_chain);
     }
 m_rect_free_chain = rect;
-rect->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+
+/* TODO: decide whether to keep the assert or keep the assignment*/
+AA_ALWAYS_ASSERT( NULL == rect->get_shape_owner() );
+rect->set_shape_owner(NULL);
+
 AA_DECR_CALL_DEPTH();
 }
 
@@ -8050,7 +8240,11 @@ if(NULL != m_polygon_free_chain){
     polygon->set_free_chain_next(m_polygon_free_chain);
     }
 m_polygon_free_chain = polygon;
-polygon->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+
+/* TODO: decide whether to keep the assert or keep the assignment*/
+AA_ALWAYS_ASSERT( NULL == polygon->get_shape_owner() );
+polygon->set_shape_owner(NULL);
+
 AA_DECR_CALL_DEPTH();
 }
 
@@ -8085,7 +8279,11 @@ if(NULL != m_spline_free_chain){
     spline->set_free_chain_next(m_spline_free_chain);
     }
 m_spline_free_chain = spline;
-spline->set_shp_owner_idx(NP02_SHP_OWNER_INVALID_IDX);
+
+/* TODO: decide whether to keep the assert or keep the assignment*/
+AA_ALWAYS_ASSERT( NULL == spline->get_shape_owner() );
+spline->set_shape_owner(NULL);
+ 
 AA_DECR_CALL_DEPTH();
 }
 
@@ -8270,9 +8468,8 @@ AA_DECR_CALL_DEPTH();
 }
 
 uint64_t np02_shp_alloc::hash( const uint64_t& h_in ) const{
-static const size_t max_free_chain_sz = 100000000; /*TODO: make static constant */
-size_t free_chain_sz = 0;
 uint64_t h = h_in;
+size_t free_chain_sz = 0;
 
 const np02_shape_handle *shape_handle = NULL;
 shape_handle_vec::const_iterator shape_handle_itr = m_alloc_shape_handle_vec.begin();
@@ -8293,7 +8490,7 @@ for( ; shape_handle_itr != m_alloc_shape_handle_vec.end(); ++shape_handle_itr ){
 
 free_chain_sz = 0;
 shape_handle = m_shape_handle_free_chain;
-while( ( NULL != shape_handle ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != shape_handle ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = shape_handle->hash(h);
     shape_handle = shape_handle->get_free_chain_next();
     ++free_chain_sz;
@@ -8319,7 +8516,7 @@ for( ; circle_itr != m_alloc_circle_vec.end(); ++circle_itr ){
 
 free_chain_sz = 0;
 circle = m_circle_free_chain;
-while( ( NULL != circle ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != circle ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = circle->hash(h);
     circle = circle->get_free_chain_next();
     ++free_chain_sz;
@@ -8345,7 +8542,7 @@ for( ; arc_itr != m_alloc_arc_vec.end(); ++arc_itr ){
 
 free_chain_sz = 0;
 arc = m_arc_free_chain;
-while( ( NULL != arc ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != arc ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = arc->hash(h);
     arc = arc->get_free_chain_next();
     ++free_chain_sz;
@@ -8371,7 +8568,7 @@ for( ; line_seg_itr != m_alloc_line_seg_vec.end(); ++line_seg_itr ){
 
 free_chain_sz = 0;
 line_seg = m_line_seg_free_chain;
-while( ( NULL != line_seg ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != line_seg ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = line_seg->hash(h);
     line_seg = line_seg->get_free_chain_next();
     ++free_chain_sz;
@@ -8397,7 +8594,7 @@ for( ; rect_itr != m_alloc_rect_vec.end(); ++rect_itr ){
 
 free_chain_sz = 0;
 rect = m_rect_free_chain;
-while( ( NULL != rect ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != rect ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = rect->hash(h);
     rect = rect->get_free_chain_next();
     ++free_chain_sz;
@@ -8423,7 +8620,7 @@ for( ; polygon_itr != m_alloc_polygon_vec.end(); ++polygon_itr ){
 
 free_chain_sz = 0;
 polygon = m_polygon_free_chain;
-while( ( NULL != polygon ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != polygon ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = polygon->hash(h);
     polygon = polygon->get_free_chain_next();
     ++free_chain_sz;
@@ -8449,7 +8646,7 @@ for( ; spline_itr != m_alloc_spline_vec.end(); ++spline_itr ){
 
 free_chain_sz = 0;
 spline = m_spline_free_chain;
-while( ( NULL != spline ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != spline ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = spline->hash(h);
     spline = spline->get_free_chain_next();
     ++free_chain_sz;
@@ -8476,7 +8673,7 @@ for( ; lg_node_itr != m_alloc_loc_grid_node_vec.end(); ++lg_node_itr ){
 
 free_chain_sz = 0;
 lg_node = m_loc_grid_node_free_chain;
-while( ( NULL != lg_node ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != lg_node ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = lg_node->hash(h);
     lg_node = lg_node->get_free_chain_next();
     ++free_chain_sz;
@@ -8520,7 +8717,7 @@ for( ; boundary_seg_itr != m_alloc_boundary_seg_vec.end(); ++boundary_seg_itr ){
 
 free_chain_sz = 0;
 boundary_seg = m_boundary_seg_free_chain;
-while( ( NULL != boundary_seg ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != boundary_seg ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = boundary_seg->hash(h);
     boundary_seg = boundary_seg->get_free_chain_next();
     ++free_chain_sz;
@@ -8546,7 +8743,7 @@ for( ; boundary_itr != m_alloc_boundary_vec.end(); ++boundary_itr ){
 
 free_chain_sz = 0;
 boundary = m_boundary_free_chain;
-while( ( NULL != boundary ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != boundary ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = boundary->hash(h);
     boundary = boundary->get_free_chain_next();
     ++free_chain_sz;
@@ -8572,7 +8769,7 @@ for( ; region_itr != m_alloc_region_vec.end(); ++region_itr ){
 
 free_chain_sz = 0;
 region = m_region_free_chain;
-while( ( NULL != region ) && ( free_chain_sz < max_free_chain_sz ) ){
+while( ( NULL != region ) && ( free_chain_sz < m_max_free_chain_sz ) ){
     h = region->hash(h);
     region = region->get_free_chain_next();
     ++free_chain_sz;

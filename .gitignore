@@ -1,16 +1,16 @@
-*.o
+#ignore these files
 *.a
 *.exe
-*.vpwhist
-*.vtg
-/slickedit_gcc/Debug/
-/slickedit_gcc/Release/*.bmp
-/slickedit_gcc/Release/
-/slickedit_gcc/Profile/
-/msvc/.vs/np02/FileContentIndex/
-/msvc/.vs
+*.o
 *.vcxproj.filters
 *.vcxproj.user
-/msvc/np02/x64
+*.vpwhist
+*.vtg
+/msvc/.vs
+/msvc/np02/.vs
+/msvc/np02/x64/
 /msvc/np02_test/x64
-/msvc/x64
+/msvc/x64/
+/gcc/Debug/
+/gcc/Profile/
+/gcc/Release/

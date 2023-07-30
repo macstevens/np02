@@ -202,12 +202,10 @@ typedef np02_xy_vec::iterator np02_xy_vec_itr;
 
 
 typedef uint32_t shape_idx_type;
-typedef uint64_t shp_owner_idx_type;
 typedef uint64_t shp_hndl_owner_idx_type;
 typedef uint64_t lyr_idx_type;
 
 #define NP02_SHAPE_MAX_IDX (std::numeric_limits<shape_idx_type>::max()/4)
-#define NP02_SHP_OWNER_INVALID_IDX (std::numeric_limits<shp_owner_idx_type>::max())
 #define NP02_SHP_HNDL_OWNER_INVALID_IDX \
     (std::numeric_limits<shp_hndl_owner_idx_type>::max())
 #define NP02_LYR_INVALID_IDX (std::numeric_limits<lyr_idx_type>::max())
@@ -220,6 +218,7 @@ public:
 	np02_shape_owner();
     virtual ~np02_shape_owner();
 	virtual np02_shape *get_shape() const = 0;
+    virtual np02_shp_alloc *get_shp_alloc() const = 0;
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
@@ -250,7 +249,7 @@ private:
 public:
 	np02_shape_handle();
     virtual ~np02_shape_handle();
-    void destruct() { clear_shp_rgn(); } /* TOOD: move to .cpp file */
+    void destruct();
     void set_free_chain_next(np02_shape_handle *n){
         clear_shp_rgn();
         m_hndl_type = NP02_SHAPE_HANDLE_TYPE_FREE_CHAIN;
@@ -258,7 +257,7 @@ public:
     np02_shape_handle *get_free_chain_next() const{
         return m_object_ptr.m_free_chain_next; }
     void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
-    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
+    virtual np02_shp_alloc *get_shp_alloc() const;
     void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
     const size_t& get_alloc_idx() const{ return m_alloc_idx; }
     void set_owner_idx( const shp_hndl_owner_idx_type& i){ m_owner_idx = i; }
@@ -372,6 +371,46 @@ enum np02_shape_type{
     NP02_SHAPE_TYPE_COUNT
 };
 
+/* applies to arc or line_seg
+ 
+ Forward/Reverse orientation of shape in relation to a series of shapes
+ in a boundary.
+ 
+           ---+---------------->+<--
+         /         line_seg          \  arc
+       /            fwd               | fwd
+      |arc                          --+
+      \fwd                        /
+       \                        /arc
+         \                     V rev
+           -->+--------------->+
+                  line_seg
+                   fwd
+ 
+ */
+enum np02_shape_orientation{
+    NP02_SHAPE_ORIENTATION_FWD = 0,
+    NP02_SHAPE_ORIENTATION_REV = 1,
+    NP02_SHAPE_ORIENTATION_COUNT
+};
+
+/*
+            NORMAL                              INVERTED                                                
+            outside                              inside             
+         +----------+                         +----------+           
+         |          |                         |          |           
+ outside |  inside  | outside          inside |  outside | inside   
+         |          |                         |          |           
+         +----------+                         +----------+           
+           outside                              inside              
+ 
+*/
+enum np02_shape_invert_status{
+    NP02_SHAPE_INVERT_STATUS_NORMAL= 0,
+    NP02_SHAPE_INVERT_STATUS_INVERTED = 1,
+    NP02_SHAPE_INVERT_STATUS_COUNT
+};
+
 class np02_shape{
 public:
     static const double m_pi;
@@ -391,14 +430,19 @@ public:
     typedef type_idx_shp_vec::iterator type_idx_shp_vec_itr;
     typedef type_idx_shp_vec::const_iterator type_idx_shp_vec_citr;
 private:
-    np02_shape_type m_shape_type; /* type+idx uniquely identifies shape */
+    uint8_t m_shape_type; /* type+shape_idx uniquely identifies shape */
+    uint8_t m_orientation;
+    uint8_t m_invert_status;
+    uint8_t m_pad;
     shape_idx_type m_shape_idx;
-    shp_owner_idx_type m_shp_owner_idx;
+    np02_shape_owner *m_shape_owner;
     np02_shp_alloc *m_shp_alloc;
     np02_loc_grid_node *m_head_loc_grid_node;
 protected:
+    np02_shape *m_free_chain_next;
+protected:
     void set_shape_type(const np02_shape_type& shape_type){
-        m_shape_type = shape_type; }
+        m_shape_type = static_cast<uint8_t>(shape_type); }
     double get_small_distance() const;
 public:
     static void cos_sin_rot_deg( const double& rot_deg,
@@ -407,11 +451,20 @@ public:
     np02_shape();
     virtual void destruct();
     virtual ~np02_shape();
-    np02_shape_type get_shape_type() const{return m_shape_type;}
+    np02_shape_type get_shape_type() const{
+        return static_cast<np02_shape_type>(m_shape_type);}
+    void set_shape_orientation(const np02_shape_orientation& o){
+        m_orientation = static_cast<uint8_t>(o); }
+    np02_shape_orientation get_shape_orientation() const{
+        return static_cast<np02_shape_orientation>(m_orientation);}
+    void set_shape_invert_status(const np02_shape_invert_status& s){
+        m_invert_status = static_cast<uint8_t>(s); }
+    np02_shape_invert_status get_shape_invert_status() const{
+        return static_cast<np02_shape_invert_status>(m_invert_status);}
     void set_shape_idx(const shape_idx_type& shape_idx){m_shape_idx=shape_idx;}
     shape_idx_type get_shape_idx() const{return m_shape_idx;}
-    shp_owner_idx_type get_shp_owner_index() const{ return m_shp_owner_idx; }
-    void set_shp_owner_idx(const shp_owner_idx_type& i){m_shp_owner_idx=i;}
+    np02_shape_owner *get_shape_owner() const{ return m_shape_owner; }
+    void set_shape_owner(np02_shape_owner *o){m_shape_owner=o;}
     void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
     np02_shp_alloc *get_shp_alloc() const { return m_shp_alloc; }
     lyr_idx_type get_lyr_idx() const;
@@ -476,6 +529,10 @@ public:
                                  (bb_a_xy_min.get_y() <= bb_b_xy_max.get_y())&&
                                  (bb_b_xy_min.get_y() <= bb_a_xy_max.get_y()));
         return bb_overlap; }
+    static void bb_merge(
+        const np02_xy& bb_a_xy_min, const np02_xy& bb_a_xy_max,
+        const np02_xy& bb_b_xy_min, const np02_xy& bb_b_xy_max,
+        np02_xy *bb_c_xy_min, np02_xy *bb_c_xy_max );
     static double get_bb_sep_dist_manhattan(
         const np02_xy& bb_a_xy_min, const np02_xy& bb_a_xy_max,
         const np02_xy& bb_b_xy_min, const np02_xy& bb_b_xy_max );
@@ -502,10 +559,10 @@ private:
 public:
     np02_circle();
     virtual ~np02_circle();
-    void set_free_chain_next(np02_circle *n){ /* TODO: use dedicated member variable instead of re-using locator grid node */
-        set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
+    void set_free_chain_next(np02_circle *n){
+        m_free_chain_next = static_cast<np02_shape *>(n);}
     np02_circle *get_free_chain_next() const{ return
-        reinterpret_cast<np02_circle *>(get_head_loc_grid_node()); }
+        static_cast<np02_circle *>(m_free_chain_next); }
     void init(const np02_xy& ctr, const double& radius){
         m_ctr=ctr; m_radius=radius; }
     void set_ctr(const np02_xy& ctr){m_ctr=ctr;}
@@ -615,9 +672,9 @@ public:
     np02_arc();
     virtual ~np02_arc();
     void set_free_chain_next(np02_arc *n){
-        set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
+        m_free_chain_next = static_cast<np02_arc *>(n);}
     np02_arc *get_free_chain_next() const{ return
-        reinterpret_cast<np02_arc *>(get_head_loc_grid_node()); }
+        static_cast<np02_arc *>(m_free_chain_next); }
     void init(const init_params& prm);
     void init_force_p01(const init_params& prm, 
         const init3pt_aux_params& aux_prm );
@@ -769,9 +826,9 @@ public:
     np02_rect();
     virtual ~np02_rect();
     void set_free_chain_next(np02_rect *n){
-        set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
+        m_free_chain_next = static_cast<np02_rect *>(n);}
     np02_rect *get_free_chain_next() const{ return
-        reinterpret_cast<np02_rect *>(get_head_loc_grid_node()); }
+        static_cast<np02_rect *>(m_free_chain_next); }
     void init(const np02_xy& ctr, const double& w, const double& h,
         const double& rot_deg);
 
@@ -849,9 +906,9 @@ public:
     np02_line_seg();
     virtual ~np02_line_seg();
     void set_free_chain_next(np02_line_seg *n){
-        set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
+        m_free_chain_next = static_cast<np02_line_seg *>(n);}
     np02_line_seg *get_free_chain_next() const{ return
-        reinterpret_cast<np02_line_seg *>(get_head_loc_grid_node()); }
+        static_cast<np02_line_seg *>(m_free_chain_next); }
     void init(const np02_xy& p_0,const np02_xy& p_1,const double& width);
     const np02_xy& get_p_0() const{ return m_p_0; }
     const np02_xy& get_p_1() const{ return m_p_1; }
@@ -919,9 +976,9 @@ public:
     np02_polygon();
     virtual ~np02_polygon();
     void set_free_chain_next(np02_polygon *n){
-        set_head_loc_grid_node(reinterpret_cast<np02_loc_grid_node *>(n));}
+        m_free_chain_next = static_cast<np02_polygon *>(n);}
     np02_polygon *get_free_chain_next() const{ return
-        reinterpret_cast<np02_polygon *>(get_head_loc_grid_node()); }
+        static_cast<np02_polygon *>(m_free_chain_next); }
     void init(const np02_xy_vec& vertices);
     virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const;
     virtual void get_loc_grid_indices_for_init(
@@ -967,9 +1024,11 @@ public:
 public:
     np02_spline();
     virtual ~np02_spline();
-    void set_free_chain_next(np02_spline *n){/* TODO: implement */}
-    np02_spline *get_free_chain_next() const{ return NULL; /* TODO: implement */ } 
-    virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const;
+    void set_free_chain_next(np02_spline *n){
+        m_free_chain_next = static_cast<np02_spline *>(n);}
+    np02_spline *get_free_chain_next() const{ return
+        static_cast<np02_spline *>(m_free_chain_next); }
+   virtual void get_bb(np02_xy *xy_min, np02_xy *xy_max) const;
     virtual void get_loc_grid_indices_for_init(
         const np02_loc_grid_dim& loc_grid_dim,
         const double& extra_search_d, np02_uint16_pair_vec *index_vec)
@@ -1288,20 +1347,6 @@ private:
 };
 
 
-/* applies to arc or line_seg */
-enum np02_boundary_seg_orientation{
-    NP02_BOUNDARY_SEG_ORIENTATION_FWD = 0,
-    NP02_BOUNDARY_SEG_ORIENTATION_REV = 1,
-    NP02_BOUNDARY_SEG_ORIENTATION_COUNT
-};
-
-/* applies to rect or circle */
-enum np02_boundary_seg_invert_status{
-    NP02_BOUNDARY_SEG_INVERT_STATUS_NORMAL= 0,
-    NP02_BOUNDARY_SEG_INVERT_STATUS_INVERTED = 1,
-    NP02_BOUNDARY_SEG_INVERT_STATUS_COUNT
-};
-
 class np02_boundary_seg: public np02_shape_owner{
 private:
     np02_shp_alloc *m_shp_alloc;
@@ -1310,8 +1355,6 @@ private:
     np02_shape *m_shape;
     np02_boundary_seg *m_prev;
     np02_boundary_seg *m_next;
-    np02_boundary_seg_orientation m_orientation; 
-    np02_boundary_seg_invert_status m_invert_status;   
 public:
 	np02_boundary_seg();
     virtual ~np02_boundary_seg();
@@ -1319,7 +1362,7 @@ public:
     void set_free_chain_next(np02_boundary_seg *n){ m_next=n; }
     np02_boundary_seg *get_free_chain_next() const{ return m_next; }
     void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
-    np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
+    virtual np02_shp_alloc *get_shp_alloc() const;
     void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
     const size_t& get_alloc_idx() const{ return m_alloc_idx; }
     void set_owner(np02_boundary *owner){ m_owner = owner; }
@@ -1330,35 +1373,62 @@ public:
     np02_boundary_seg *get_prev() const{ return m_prev; }
     void set_next(np02_boundary_seg *next){ m_next = next; }
     np02_boundary_seg *get_next() const{ return m_next; }
-    void set_orientation(const np02_boundary_seg_orientation& o){
-        m_orientation = o; }
-    const np02_boundary_seg_orientation &get_orientation() const{
-        return m_orientation; }
-    void set_invert_status(const np02_boundary_seg_invert_status& s){
-        m_invert_status = s; }
-    const np02_boundary_seg_invert_status &get_invert_status() const{
-        return m_invert_status; }
     uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
+    std::ostream& ostream_output(std::ostream& os) const;
+    void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    void write_dxf_file(const std::string& layer,
+        const uint8_t& color, np02_dxf_file *dxf_file) const;
 private:
     void clear_shape();
     np02_boundary_seg(const np02_boundary_seg&); /* don't implement */
     np02_boundary_seg& operator=(const np02_boundary_seg&); /* don't implement */
 };
 
+/*
+loop (typical) 
+ 
+ m_segs_head=m_segs_tail
+     |
+     |
+     V
+  +-----+        +-----+        +-----+        +-----+        +-----+
+  |b_seg|--next->|b_seg|--next->|b_seg|--next->|b_seg|--next->|b_seg|
+  |     |<-prev--|     |<-prev--|     |<-prev--|     |<-prev--|     |
+  |     |        +-----+        +-----+        +-----+        |     |
+  |     |------------------------prev------------------------>|     |
+  +-----+<------------------------next------------------------+-----+
+ 
+ 
+Open (also ok) 
+ 
+            m_segs_head                                                m_segs_tail
+               |                                                           |
+               |                                                           |
+               V                                                           V
+            +-----+        +-----+        +-----+        +-----+        +-----+
+NULL<-prev--|b_seg|--next->|b_seg|--next->|b_seg|--next->|b_seg|--next->|b_seg|--next->NULL
+            |     |<-prev--|     |<-prev--|     |<-prev--|     |<-prev--|     |
+            +-----+        +-----+        +-----+        +-----+        +-----+
+*/
 class np02_boundary{
 private:
     np02_shp_alloc *m_shp_alloc;
     size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_boundary_by_idx() */
-    np02_region *m_owner; 
-    np02_boundary_seg *m_segs_head, *m_segs_tail;
+    np02_region *m_owner;
+    np02_boundary_seg *m_segs_head; 
+    np02_boundary_seg *m_segs_tail;
+    np02_boundary *m_rgn_bdry_prev;
+    np02_boundary *m_rgn_bdry_next;
 public:
 	np02_boundary();
     virtual ~np02_boundary();
     void destruct();
-    void set_free_chain_next(np02_boundary *n){ /* TODO: implement */ }
-    np02_boundary *get_free_chain_next() const{ /* TODO: implement */ return NULL; }
+    void set_free_chain_next(np02_boundary *n){ m_rgn_bdry_next = n; }
+    np02_boundary *get_free_chain_next() const{ return m_rgn_bdry_next; }
     void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
     np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
     void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
@@ -1366,26 +1436,63 @@ public:
     void set_owner(np02_region *owner){ m_owner = owner; }
     np02_region *get_owner() const{ return m_owner; }
     void clear_boundary_segs();
-    void add_boundary_seg(np02_boundary_seg *s);
+    void add_boundary_seg_loop(np02_boundary_seg *s);
+    void add_boundary_seg_open(np02_boundary_seg *s);
+    void remove_boundary_seg(np02_boundary_seg *s);
+    np02_boundary_seg *get_boundary_segs_head() const{ return m_segs_head; }
+    np02_boundary_seg *get_boundary_segs_tail() const{ return m_segs_tail; }
+    size_t get_boundary_seg_count() const;
+    void set_rgn_bdry_prev(np02_boundary *n){ m_rgn_bdry_prev = n; }
+    np02_boundary *get_rgn_bdry_prev() const{ return m_rgn_bdry_prev; }
+    void set_rgn_bdry_next(np02_boundary *n){ m_rgn_bdry_next = n; }
+    np02_boundary *get_rgn_bdry_next() const{ return m_rgn_bdry_next; }
+    np02_boundary_seg *advance_boundary_seg_itr(
+        np02_boundary_seg *bndry_seg_itr) const;
+    const np02_boundary_seg *advance_boundary_seg_citr(
+        const np02_boundary_seg *bndry_seg_citr) const{
+        return const_cast<const np02_boundary_seg *>(advance_boundary_seg_itr(
+            const_cast<np02_boundary_seg *>(bndry_seg_citr))); }
+    void get_bb(np02_xy *xy_min, np02_xy *xy_max, bool *valid) const;
+    /* TODO: get locator grid */
+    /* TODO: get near point on region to given (x,y) */
     uint64_t hash( const uint64_t& h_in=0 ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
-                     size_t *err_msg_pos ) const;
+        size_t *err_msg_pos ) const;
+    int verify_data_segs_head_tail( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    std::ostream& ostream_output(std::ostream& os) const;
+    void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    void write_dxf_file(const std::string& layer,
+        const uint8_t& color, np02_dxf_file *dxf_file) const;
 };
 
+
+/*
+        m_boundaries_head                                           m_boundaries_tail
+               |                                                           |
+               |                                                           |
+               V                                                           V
+            +-----+        +-----+        +-----+        +-----+        +-----+
+NULL<-prev--|bndry|--next->|bndry|--next->|bndry|--next->|bndry|--next->|bndry|--next->NULL
+            |     |<-prev--|     |<-prev--|     |<-prev--|     |<-prev--|     |
+            +-----+        +-----+        +-----+        +-----+        +-----+
+*/
 class np02_region{
-private:
-    typedef np02_small_vec< np02_boundary *, 1 > boundary_vec;
 private:
     np02_shp_alloc *m_shp_alloc;
     size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_region_by_idx() */
     np02_shape_handle *m_owner;
-    boundary_vec m_boundaries;
+    np02_region *m_free_chain_next;
+    np02_boundary *m_boundaries_head; 
+    np02_boundary *m_boundaries_tail;
 public:
-	np02_region(); /* TODO: init m_owner */
+	np02_region();
     virtual ~np02_region();
     void destruct();
-    void set_free_chain_next(np02_region *n){ /* TODO: implement */ }
-    np02_region *get_free_chain_next() const{ /* TODO: implement */ return NULL; }
+    void set_free_chain_next(np02_region *n){ m_free_chain_next = n; }
+    np02_region *get_free_chain_next() const{ return m_free_chain_next; }
     void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
     np02_shp_alloc *get_shp_alloc() const{ return m_shp_alloc; }
     void set_owner( np02_shape_handle * owner){ m_owner = owner; }
@@ -1394,19 +1501,30 @@ public:
     const size_t& get_alloc_idx() const{ return m_alloc_idx; }
     void clear_boundaries();
     void add_boundary(np02_boundary *b);
-    size_t get_boundary_count() const{ return m_boundaries.size(); }
-    np02_boundary *get_boundary( const size_t& i) const{
-        return ( i < m_boundaries.size() ) ? m_boundaries.at(i) : NULL; }
+    void remove_boundary(np02_boundary *b);
+    np02_boundary *get_boundaries_head() const{ return m_boundaries_head; }
+    np02_boundary *get_boundaries_tail() const{ return m_boundaries_tail; }
+    size_t get_boundary_count() const;
+    void get_bb(np02_xy *xy_min, np02_xy *xy_max, bool *valid) const;
     uint64_t hash( const uint64_t& h_in=0 ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
+    int verify_data_boundaries_head_tail( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    std::ostream& ostream_output(std::ostream& os) const;
+    void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    void write_dxf_file(const std::string& layer,
+        const uint8_t& color, np02_dxf_file *dxf_file) const;
 };
 
 
 /* Shape Allocator */
 class np02_shp_alloc{
 private:
-
+    static const size_t m_max_free_chain_sz;
+private:
     typedef std::vector<np02_shape_handle *> shape_handle_vec;
     typedef std::vector<np02_circle *> circle_vec;
     typedef std::vector<np02_arc *> arc_vec;
