@@ -74,8 +74,21 @@ public:
         const double& y0, const double& height, const double& rot_deg,
         const uint8_t& color);
     int write_file(const char *file_name) const;
+    int insert_in_file(const char *input_file_name,
+        const char *output_file_name) const;
 private:
-    void add_layer( const std::string& layer, const uint8_t& color); 
+    void add_layer( const std::string& layer, const uint8_t& color);
+    void write_head( std::ostream& os )const;
+    void write_shapes( std::ostream& os )const;
+    void write_tail( std::ostream& os )const;
+    static bool is_match_str(const std::string& x, const std::string& y);
+
+};
+
+
+class np02_dxf_test{
+public:
+    static int run_dxf_test();
 };
 
 

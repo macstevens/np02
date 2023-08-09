@@ -10199,6 +10199,8 @@ draw_debug_shapes( bmp_file_p );
 
 bmp_file.write_file( bmp_file_p.m_header.c_str() );
 
+err_cnt += np02_dxf_test::run_dxf_test();
+
 AA_DECR_CALL_DEPTH();
 return err_cnt;
 }

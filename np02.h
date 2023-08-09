@@ -24,8 +24,43 @@ Reference: https://opensource.org/licenses/ISC
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "np02_bmp.h"
 #include "np02_dxf.h"
+
+#define CF01_SUPPORT ( 1 )
+#if defined( CF01_SUPPORT )
+#include "cf01.h"
+    #define AA_INCR_CALL_DEPTH()        CF01_AA_INCR_CALL_DEPTH()
+    #define AA_DECR_CALL_DEPTH()        CF01_AA_DECR_CALL_DEPTH()
+    #define AUTO_ASSERT( _condition )   CF01_AUTO_ASSERT(_condition)
+    #define AA_ALWAYS_ASSERT( _condition ) \
+                  CF01_AA_XDBG_ASSERT((_condition), CF01_AA_DEBUG_LEVEL_0)
+    #define AA_SHOULD_RUN_XDBG(_dbg_lvl) CF01_AA_SHOULD_RUN_XDBG(_dbg_lvl)
+    #define AA_XDBG_ASSERT( _condition, _dbg_lvl ) \
+                            CF01_AA_XDBG_ASSERT( (_condition), _dbg_lvl )
+    #define AA_ERR_BUF()                CF01_AA_ERR_BUF()
+    #define AA_ERR_BUF_CAPACITY()       CF01_AA_ERR_BUF_CAPACITY()
+    #define AA_ERR_BUF_POS_PTR()        CF01_AA_ERR_BUF_POS_PTR()
+    #define AA_DEBUG_LEVEL_0            CF01_AA_DEBUG_LEVEL_0
+    #define AA_DEBUG_LEVEL_1            CF01_AA_DEBUG_LEVEL_1
+    #define AA_DEBUG_LEVEL_2            CF01_AA_DEBUG_LEVEL_2
+    #define AA_DEBUG_LEVEL_3            CF01_AA_DEBUG_LEVEL_3
+#else
+    #define AA_INCR_CALL_DEPTH()        
+    #define AA_DECR_CALL_DEPTH()        
+    #define AUTO_ASSERT( _condition )   assert(_condition)
+    #define AA_ALWAYS_ASSERT( _condition )   assert(_condition)
+    #define AA_SHOULD_RUN_XDBG(_dbg_lvl)  (0)
+    #define AA_XDBG_ASSERT( _condition, _dbg_lvl ) 
+    #define AA_ERR_BUF()                (NULL)
+    #define AA_ERR_BUF_CAPACITY()       (0)
+    #define AA_ERR_BUF_POS_PTR()        (NULL)
+    #define AA_DEBUG_LEVEL_0            (0)
+    #define AA_DEBUG_LEVEL_1            (1)
+    #define AA_DEBUG_LEVEL_2            (2)
+    #define AA_DEBUG_LEVEL_3            (3)
+#endif
 
 namespace np02 {
 
@@ -1519,6 +1554,138 @@ public:
         const uint8_t& color, np02_dxf_file *dxf_file) const;
 };
 
+enum np02_region_operation_type{
+    NP02_REGION_OPERATION_TYPE_OFFSET,
+    NP02_REGION_OPERATION_TYPE_INTERSECTION,
+    NP02_REGION_OPERATION_TYPE_UNION,
+    NP02_REGION_OPERATION_TYPE_INVERSE,
+    NP02_REGION_OPERATION_TYPE_VORONOI,
+
+    NP02_REGION_OPERATION_TYPE_COUNT
+};
+
+class np02_region_operation{
+private:
+    typedef std::vector<np02_region *> region_vec;
+
+private:
+    /* input */
+    np02_region_operation_type m_operation_type;
+    region_vec m_input_regions;
+    double m_offset;
+    double m_tolerance;
+
+    /* working data */
+    np02_shp_alloc *m_shp_alloc;
+    np02_loc_grid *m_loc_grid;
+
+    /* candidate shapes */
+
+    /* quad tree */
+
+    /* quad tree boundary loops */
+
+    /* augmented candidate shape loops */
+
+    /* output */
+    int m_error_count;
+    region_vec m_output_regions;
+};
+
+class np02_augmented_boundary_shape_data{
+private:
+    np02_augmented_boundary_shape_data *m_prev;
+    np02_augmented_boundary_shape_data *m_next;
+
+    np02_shape *m_boundary_shape;
+
+    np02_boundary_seg *m_qt_bdry_seg0;
+    np02_boundary_seg *m_qt_bdry_seg1;
+
+    np02_xy m_p0;
+    np02_xy m_p1;
+};
+
+
+
+union np02_shape_aux_data{
+private:
+    const void *m_cptr;
+    void *m_ptr;
+    uint64_t m_idx;
+public:
+    np02_shape_aux_data(): m_idx(0){
+        AUTO_ASSERT(NULL == m_cptr);AUTO_ASSERT(NULL == m_ptr);}
+    np02_shape_aux_data(const np02_shape_aux_data& master): m_idx(master.m_idx){
+        AUTO_ASSERT(m_cptr == master.m_cptr);
+        AUTO_ASSERT(m_ptr == master.m_ptr); }
+    np02_shape_aux_data& operator=(const np02_shape_aux_data& master){
+        m_idx = master.m_idx; AUTO_ASSERT(m_cptr == master.m_cptr);
+        AUTO_ASSERT(m_ptr == master.m_ptr); }
+    void set_cptr(const void *p){ m_cptr = p; }
+    const void *get_cptr() const{ return m_cptr; }
+    void set_ptr(void *p){ m_ptr = p; }
+    void *get_ptr() const{ return m_ptr; }
+    void set_ptr(const uint64_t& i){ m_idx = i; }
+    const uint64_t& get_idx() const{ return m_idx; }
+};
+
+class np02_quad_tree{
+private:
+    np02_shp_alloc *m_shp_alloc;
+    np02_shape_aux_data m_data;
+    np02_quad_tree *m_parent;
+    np02_quad_tree *m_child_se;
+    np02_quad_tree *m_child_sw;
+    np02_quad_tree *m_child_ne;
+    np02_quad_tree *m_child_nw;
+    double m_size;
+    np02_xy m_ctr;
+};
+
+enum np02_rgn_op_qt_type{
+    NP02_RGN_OP_QT_TYPE_NONE = 0,
+    NP02_RGN_OP_QT_TYPE_IN = 1,      /* clearly inside*/
+    NP02_RGN_OP_QT_TYPE_OUT = 2,
+    NP02_RGN_OP_QT_TYPE_IN_OUT = 3,
+    NP02_RGN_OP_QT_TYPE_DEEP = 4,          /* not valid */
+    NP02_RGN_OP_QT_TYPE_DEEP_IN = 5,
+    NP02_RGN_OP_QT_TYPE_DEEP_OUT = 6,
+    NP02_RGN_OP_QT_TYPE_DEEP_IN_OUT_INVALID = 7, /* not valid */
+
+    NP02_RGN_OP_QT_TYPE_COUNT
+
+};
+
+class np02_region_operation_qt_data{
+private:
+    np02_rgn_op_qt_type m_qt_type;
+    np02_shape *m_near_rgn_shape;
+    np02_shape *m_second_near_rgn_shape;
+    np02_xy m_near_xy;
+    np02_xy m_second_near_xy;
+    double m_near_distance;
+    double m_second_near_distance;
+};
+
+struct np02_voronoi_qt_data_shp{
+    np02_shape *m_shape;
+    double m_distance;
+    double m_near_pt;
+};
+
+class np02_voronoi_qt_data{
+public:
+    enum near_status{
+        NEAR_STATUS_CLOSEST,
+        NEAR_STATUS_SECOND,
+        NEAR_STATUS_THIRD,
+
+        NEAR_STATUS_COUNT
+    };
+private:
+    np02_voronoi_qt_data_shp m_near_shp_data[NEAR_STATUS_COUNT];
+};
 
 /* Shape Allocator */
 class np02_shp_alloc{
