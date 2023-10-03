@@ -41,8 +41,14 @@ void np02_dxf_file::draw_line(const std::string& layer,const double& x0,
 std::ostringstream os;
 os <<  "  0\n"
     << "LINE\n"
+    << "100\n"
+    << "AcDbEntity\n"
     << "  8\n"
     << layer << "\n"
+    << " 62\n"
+    << static_cast<int>(color) << "\n"
+    << "100\n"
+    << "AcDbLine\n"
     << " 10\n"
     << x0 << "\n"
     << " 20\n"
@@ -50,9 +56,7 @@ os <<  "  0\n"
     << " 11\n"
     << x1 << "\n"
     << " 21\n"
-    << y1 << "\n"
-    << " 62\n"
-    << static_cast<int>(color) << "\n";
+    << y1 << "\n";
 m_dxf_shape_str_vec.push_back(os.str());
 add_layer(layer, color);
 }
@@ -72,16 +76,20 @@ void np02_dxf_file::draw_circle(const std::string& layer,
 std::ostringstream os;
 os <<  "  0\n"
     << "CIRCLE\n"
+    << "100\n"
+    << "AcDbEntity\n"
     << "  8\n"
     << layer << "\n"
+    << " 62\n"
+    << static_cast<int>(color) << "\n"
+    << "100\n"
+    << "AcDbCircle\n"
     << " 10\n"
     << x_ctr << "\n"
     << " 20\n"
     << y_ctr << "\n"
     << " 40\n"
-    << radius << "\n"
-    << " 62\n"
-    << static_cast<int>(color) << "\n";
+    << radius << "\n";
 m_dxf_shape_str_vec.push_back(os.str());
 add_layer(layer, color);
 }
@@ -97,20 +105,26 @@ double end_angle = fmod( end_angle_deg, 360.0 );
 if( end_angle < 0 ){ end_angle += 360.0; }
 os <<  "  0\n"
     << "ARC\n"
+    << "100\n"
+    << "AcDbEntity\n"
     << "  8\n"
     << layer << "\n"
+    << " 62\n"
+    << static_cast<int>(color) << "\n"
+    << "100\n"
+    << "AcDbCircle\n"
     << " 10\n"
     << x_ctr << "\n"
     << " 20\n"
     << y_ctr << "\n"
     << " 40\n"
     << radius << "\n"
+    << "100\n"
+    << "AcDbArc\n"
     << " 50\n"
     << start_angle << "\n"
     << " 51\n"
-    << end_angle << "\n"
-    << " 62\n"
-    << static_cast<int>(color) << "\n";
+    << end_angle << "\n";
 m_dxf_shape_str_vec.push_back(os.str());
 add_layer(layer, color);
 }
@@ -121,10 +135,16 @@ void np02_dxf_file::draw_text(const std::string& layer,
 std::ostringstream os;
 os <<  "  0\n"
     << "TEXT\n"
-    << "  1\n"
-    << text << "\n"
+    << "100\n"
+    << "AcDbEntity\n"
     << "  8\n"
     << layer << "\n"
+    << " 62\n"
+    << static_cast<int>(color) << "\n"
+    << "100\n"
+    << "AcDbText\n"
+    << "  1\n"
+    << text << "\n"
     << " 10\n"
     << x0 << "\n"
     << " 20\n"
@@ -132,9 +152,7 @@ os <<  "  0\n"
     << " 40\n"
     << height << "\n"
     << " 50\n"
-    << rot_deg << "\n"
-    << " 62\n"
-    << static_cast<int>(color) << "\n";
+    << rot_deg << "\n";
 m_dxf_shape_str_vec.push_back(os.str());
 add_layer(layer, color);
 }

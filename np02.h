@@ -1621,7 +1621,7 @@ public:
         AUTO_ASSERT(m_ptr == master.m_ptr); }
     np02_shape_aux_data& operator=(const np02_shape_aux_data& master){
         m_idx = master.m_idx; AUTO_ASSERT(m_cptr == master.m_cptr);
-        AUTO_ASSERT(m_ptr == master.m_ptr); }
+        AUTO_ASSERT(m_ptr == master.m_ptr); return *this; }
     void set_cptr(const void *p){ m_cptr = p; }
     const void *get_cptr() const{ return m_cptr; }
     void set_ptr(void *p){ m_ptr = p; }
