@@ -45,6 +45,25 @@ public:
     int32_t   y_resolution_ppm; // Pixels per meter
     uint32_t  num_colors;       // Number of colors  
     uint32_t  important_colors; // Important colors 
+public:
+    np02_bmp_header():
+        type(0x4d42),
+        size(0),
+        reserved1(0),
+        reserved2(0),
+        offset(54),
+        dib_header_size(40),
+        width_px(0),
+        height_px(0),
+        num_planes(0),
+        bits_per_pixel(0),
+        compression(0),
+        image_size_bytes(0),
+        x_resolution_ppm(0),
+        y_resolution_ppm(0),
+        num_colors(0),
+        important_colors(0){
+    }
 };
 #if PRAGMA_PACK_PUSH_POP_ENABLED
     #pragma pack(pop) 
@@ -56,6 +75,8 @@ struct np02_bmp_file_init_params{
 public:
     int32_t   width_px;         // Width of the image
     int32_t   height_px;        // Height of image
+public:
+    np02_bmp_file_init_params(): width_px(0), height_px(0){}
 };
 
 struct np02_bmp_color{

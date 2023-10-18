@@ -32,6 +32,7 @@ Reference: https://opensource.org/licenses/ISC
 #include "cf01.h"
     #define AA_INCR_CALL_DEPTH()        CF01_AA_INCR_CALL_DEPTH()
     #define AA_DECR_CALL_DEPTH()        CF01_AA_DECR_CALL_DEPTH()
+    #define AA_CALL_DEPTH_BLOCK()       CF01_AA_CALL_DEPTH_BLOCK()
     #define AUTO_ASSERT( _condition )   CF01_AUTO_ASSERT(_condition)
     #define AA_ALWAYS_ASSERT( _condition ) \
                   CF01_AA_XDBG_ASSERT((_condition), CF01_AA_DEBUG_LEVEL_0)
@@ -47,7 +48,8 @@ Reference: https://opensource.org/licenses/ISC
     #define AA_DEBUG_LEVEL_3            CF01_AA_DEBUG_LEVEL_3
 #else
     #define AA_INCR_CALL_DEPTH()        
-    #define AA_DECR_CALL_DEPTH()        
+    #define AA_DECR_CALL_DEPTH()
+    #define AA_CALL_DEPTH_BLOCK()
     #define AUTO_ASSERT( _condition )   assert(_condition)
     #define AA_ALWAYS_ASSERT( _condition )   assert(_condition)
     #define AA_SHOULD_RUN_XDBG(_dbg_lvl)  (0)
@@ -116,6 +118,12 @@ return h;
 }
 
 
+const np02_shape_aux_data::idx_type np02_shape_aux_data::m_invalid_idx =
+    std::numeric_limits<idx_type>::max();
+const np02_shape_aux_data np02_shape_aux_data::m_invalid_aux_data(
+    np02_shape_aux_data::m_invalid_idx);
+
+
 np02_shape_owner::np02_shape_owner(){
 }
 
@@ -155,7 +163,7 @@ return err_cnt;
 
 np02_shape_handle::np02_shape_handle(): np02_shape_owner(), m_shp_alloc(NULL),
     m_alloc_idx(0), m_hndl_type(NP02_SHAPE_HANDLE_TYPE_COUNT),
-    m_owner_idx(NP02_SHP_HNDL_OWNER_INVALID_IDX), m_object_ptr(){
+    m_aux_data(np02_shape_aux_data::invalid_aux_data()), m_object_ptr(){
 }
 
 np02_shape_handle::~np02_shape_handle(){
@@ -379,7 +387,7 @@ m_hndl_type = NP02_SHAPE_HANDLE_TYPE_COUNT;
 int np02_dist_from_xy_xy::verify_result( const np02_shape *a,
     const np02_shape *b, char *err_msg, const size_t err_msg_capacity,
     size_t *err_msg_pos ) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int err_cnt = 0;
 
 if(NULL == a ){
@@ -496,7 +504,6 @@ if((NULL != a) && (NULL != b)){
         }
     }
 
-AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
@@ -532,8 +539,8 @@ AA_XDBG_ASSERT( fabs( 1.0 - ( ( (*cos_rot) * (*cos_rot) ) +
 }
 
 np02_shape::np02_shape():m_shape_type(NP02_SHAPE_TYPE_SHAPE),
-    m_orientation(NP02_SHAPE_ORIENTATION_COUNT),
-    m_invert_status(NP02_SHAPE_INVERT_STATUS_COUNT),
+    m_orientation(NP02_SHAPE_ORIENTATION_FWD),
+    m_invert_status(NP02_SHAPE_INVERT_STATUS_NORMAL),
     m_pad(0), m_shape_idx(0), m_shape_owner(NULL),
     m_shp_alloc(NULL),  m_head_loc_grid_node(NULL), 
     m_free_chain_next(NULL){}
@@ -559,6 +566,28 @@ if(NULL != m_head_loc_grid_node ){
 
 np02_shape::~np02_shape(){
 destruct();
+}
+
+np02_boundary_seg *np02_shape::get_boundary_seg() const{
+return dynamic_cast<np02_boundary_seg *>(m_shape_owner);
+}
+
+np02_boundary *np02_shape::get_boundary() const{
+np02_boundary *boundary = NULL;
+np02_boundary_seg *boundary_seg = get_boundary_seg();
+if( NULL != boundary_seg ){
+    boundary = boundary_seg->get_owner();
+    }
+return boundary;
+}
+
+np02_region *np02_shape::get_region() const{
+np02_region *region = NULL;
+np02_boundary_seg *boundary_seg = get_boundary_seg();
+if( NULL != boundary_seg ){
+    region = boundary_seg->get_region();
+    }
+return region;
 }
 
 lyr_idx_type np02_shape::get_lyr_idx() const{
@@ -603,10 +632,25 @@ type_idx_shp_vec_itr end_pos = std::unique(local_shapes->begin(),
 local_shapes->erase( end_pos, local_shapes->end() );
 }
 
+/* get distance from this shape, when this shape is part of
+   a boundary.  Takes into account invert status 
+d_from2 -- optional output parameter.  Provides criteria
+  for choosing between shapes at equal distance from xy.
+  d_from2 smaller => xy is closer
+   */
+double np02_shape::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
+const double d = get_distance_from_xy( xy, near_xy );
+const double bseg_dist_from = 
+    ( NP02_SHAPE_INVERT_STATUS_NORMAL == get_shape_invert_status() ) ? d : -d;
+if( NULL != d_from2 ){ *d_from2 = 0.0; }
+return bseg_dist_from;
+}
+
 double np02_shape::get_distance_from_shape_double_check(
     const np02_shape *s, double *err_estimate, np02_xy *near_xy,
     np02_xy *other_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != s);
 
@@ -665,12 +709,11 @@ if(NULL != err_estimate){
 if(NULL != near_xy){ *near_xy = this_nr_xy; }
 if(NULL != other_near_xy){ *other_near_xy = other_nr_xy; }
 
-AA_DECR_CALL_DEPTH();
 return d_near;
 }
 
 void np02_shape::translate(const np02_xy& dxy){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_loc_grid *loc_grid = get_loc_grid();
 if(NULL != loc_grid){ loc_grid->remove_shape_from_loc_grid(this); }
@@ -678,11 +721,10 @@ AUTO_ASSERT(NULL == get_loc_grid());
 translate_no_loc_grid(dxy);
 if(NULL != loc_grid){ loc_grid->insert_shape_in_loc_grid(this); }
 AUTO_ASSERT(get_loc_grid() == loc_grid);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_shape::rotate(const np02_xy& rot_ctr, const double& rot_deg){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_loc_grid *loc_grid = get_loc_grid();
 if(NULL != loc_grid){ loc_grid->remove_shape_from_loc_grid(this); }
@@ -690,7 +732,6 @@ AUTO_ASSERT(NULL == get_loc_grid());
 rotate_no_loc_grid(rot_ctr, rot_deg);
 if(NULL != loc_grid){ loc_grid->insert_shape_in_loc_grid(this); }
 AUTO_ASSERT(get_loc_grid() == loc_grid);
-AA_DECR_CALL_DEPTH();
 }
 
 
@@ -699,7 +740,7 @@ int np02_shape::verify_distance_from_shape_result(
     const np02_shape *shape_b, const np02_xy& xy_near_a,
     const np02_xy& xy_near_b, const double& distance_from,
     char *err_msg, const size_t err_msg_capacity, size_t *err_msg_pos ){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int err_cnt = 0;
 
 if(NULL == shape_a ){
@@ -870,7 +911,6 @@ if((NULL != shape_a) && (NULL != shape_b)){
             xy_near_b.get_x(), xy_near_b.get_y(), distance_from );
         }
     }
-AA_DECR_CALL_DEPTH();
 
 return err_cnt;
 }
@@ -904,6 +944,38 @@ double s = 0.0;
 AA_ALWAYS_ASSERT(false); /* not implemented */
 
 return s;
+}
+
+void np02_shape::reverse_orientation(){
+switch( get_shape_orientation() ){
+    case NP02_SHAPE_ORIENTATION_FWD:
+        set_shape_orientation(NP02_SHAPE_ORIENTATION_REV);
+        break;
+    case NP02_SHAPE_ORIENTATION_REV:
+        set_shape_orientation(NP02_SHAPE_ORIENTATION_FWD);
+        break;
+    case NP02_SHAPE_ORIENTATION_COUNT:
+    default:
+        AUTO_ASSERT(false);
+        set_shape_orientation(NP02_SHAPE_ORIENTATION_FWD);
+        break;
+    }
+}
+
+void np02_shape::invert(){
+switch( get_shape_invert_status() ){
+    case NP02_SHAPE_INVERT_STATUS_NORMAL:
+        set_shape_invert_status(NP02_SHAPE_INVERT_STATUS_INVERTED);
+        break;
+    case NP02_SHAPE_INVERT_STATUS_INVERTED:
+        set_shape_invert_status(NP02_SHAPE_INVERT_STATUS_NORMAL);
+        break;
+    case NP02_SHAPE_INVERT_STATUS_COUNT:
+    default:
+        AUTO_ASSERT(false);
+        set_shape_invert_status(NP02_SHAPE_INVERT_STATUS_NORMAL);
+        break;
+    }
 }
 
 uint64_t np02_shape::hash( const uint64_t& h_in ) const{
@@ -942,13 +1014,9 @@ if( NULL != m_shp_alloc ){
 
 if( NULL != m_head_loc_grid_node ){ 
     h = m_head_loc_grid_node->hash( h );
-    const np02_loc_grid_node *p = m_head_loc_grid_node->get_s_prev();
-    while( NULL != p ){ 
-        h = p->hash( h ); 
-        p = p->get_s_prev();
-        }
+    AUTO_ASSERT( NULL ==  m_head_loc_grid_node->get_s_prev() );
     const np02_loc_grid_node *n = m_head_loc_grid_node->get_s_next();
-    while( NULL != p ){ 
+    while( NULL != n ){ 
         h = n->hash( h ); 
         n = n->get_s_next();
         }
@@ -1066,8 +1134,187 @@ if( NULL != m_head_loc_grid_node){
             "max_loc_grid_node_count=%i\n",
             this, loc_grid_node_count, max_loc_grid_node_count );
         }
+    err_cnt += verify_data_loc_grid_nodes_nearby(err_msg,
+        err_msg_capacity, err_msg_pos);
     }
 return err_cnt; 
+}
+
+int np02_shape::verify_data_loc_grid_nodes_nearby(char* err_msg,
+    const size_t err_msg_capacity, size_t* err_msg_pos) const {
+int err_cnt = 0;
+
+size_t node_count = 0;
+static const size_t max_node_count = 0xFFFFFF;
+const np02_loc_grid_node* n = m_head_loc_grid_node;
+while( (NULL != n) && (node_count < max_node_count) ){
+    err_cnt += verify_shape_loc_grid_node_nearby( this, n, err_msg,
+        err_msg_capacity, err_msg_pos );
+    n = n->get_s_next();
+    ++node_count;
+    }
+
+return err_cnt;
+}
+
+/* verify that node is not too far away from shape */
+int np02_shape::verify_shape_loc_grid_node_nearby(const np02_shape* shape,
+    const np02_loc_grid_node *n, char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos){
+int err_cnt = 0;
+
+const np02_loc_grid *loc_grid = (NULL == n) ? NULL : n->get_loc_grid();
+if (NULL == n) {
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "loc_grid_node NULL\n");
+    }
+else if (NULL == loc_grid) {
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "loc_grid NULL\n");
+    }
+else if (NULL == shape) {
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "loc_grid_node=%llx, loc_grid=%llx : shape NULL\n", n, loc_grid);
+    }
+else{
+    const uint16_t node_i = n->get_i();
+    const uint16_t node_j = n->get_j();
+    const np02_loc_grid_dim& loc_grid_dim = loc_grid->get_loc_grid_dim();
+    const double node_x = loc_grid_dim.get_sq_ctr_x(node_i);
+    const double node_y = loc_grid_dim.get_sq_ctr_y(node_j);
+    const double& grid_sq_sz = loc_grid_dim.get_sq_size();
+    const double extra_search_d = loc_grid->get_extra_search_d();
+    static const double threshold_offset_factor = 1.125;
+    const double threshold_offset = threshold_offset_factor *
+        ( grid_sq_sz + extra_search_d );
+    np02_xy bb_xy_min(0.0, 0.0);
+    np02_xy bb_xy_max(0.0, 0.0);
+    shape->get_bb( &bb_xy_min, &bb_xy_max );
+    if( (node_i + 1) < loc_grid_dim.get_w() ) {
+        const double min_threshold_node_x = bb_xy_min.get_x()-threshold_offset;
+        if( node_x < min_threshold_node_x){
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "loc_grid_node=%llx  loc_grid=%llx  shape=%llx  "
+                "node_x=%g < min_threshold_node_x=%g\n",
+                n, loc_grid, shape, node_x, min_threshold_node_x );
+            }
+        }
+    if( node_i > 0 ) {
+        const double max_threshold_node_x = bb_xy_max.get_x() + threshold_offset;
+        if (node_x > max_threshold_node_x) {
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "loc_grid_node=%llx  loc_grid=%llx  shape=%llx  "
+                "node_x=%g > max_threshold_node_x=%g\n",
+                n, loc_grid, shape, node_x, max_threshold_node_x);
+            }
+        }
+    if ((node_j + 1) < loc_grid_dim.get_h()) {
+        const double min_threshold_node_y = bb_xy_min.get_y() - threshold_offset;
+        if (node_y < min_threshold_node_y) {
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "loc_grid_node=%llx  loc_grid=%llx  shape=%llx  "
+                "node_y=%g < min_threshold_node_y=%g\n",
+                n, loc_grid, shape, node_y, min_threshold_node_y);
+            }
+        }
+    if (node_j > 0) {
+        const double max_threshold_node_y = bb_xy_max.get_y() + threshold_offset;
+        if (node_y > max_threshold_node_y) {
+            ++err_cnt;
+            np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                "loc_grid_node=%llx  loc_grid=%llx  shape=%llx  "
+                "node_y=%g > max_threshold_node_y=%g\n",
+                n, loc_grid, shape, node_y, max_threshold_node_y);
+            }
+        }
+    }
+
+return err_cnt;
+}
+
+int np02_shape::verify_loc_grid_properly_contains_shape(
+    const np02_loc_grid* loc_grid, const np02_shape* shape,
+    char* err_msg, const size_t err_msg_capacity,
+    size_t* err_msg_pos){
+int err_cnt = 0;
+if (NULL == loc_grid) {
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "loc_grid NULL\n");
+    }
+else if (NULL == shape) {
+    ++err_cnt;
+    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+        "loc_grid=%llx : shape NULL\n", loc_grid);
+    }
+else {
+    /* check that all of shape's grid nodes are close to shape */
+    err_cnt += shape->verify_data_loc_grid_nodes_nearby(
+        err_msg, err_msg_capacity, err_msg_pos);
+
+    /* check that locator grid contains shape */
+    if (loc_grid != shape->get_loc_grid() ){
+        ++err_cnt;
+        np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+            "loc_grid=%llx != (shape=%llx)->loc_grid=%llx\n", 
+            loc_grid, shape, shape->get_loc_grid() );
+        }
+
+    /* check that all grid squares near the shape are in shape's 
+    list of grid nodes */
+    const double& extra_search_d = loc_grid->get_extra_search_d();
+    AUTO_ASSERT(extra_search_d >= 0.0);
+    const np02_loc_grid_dim& loc_grid_dim = loc_grid->get_loc_grid_dim();
+    np02_xy bb_xy_min(0.0, 0.0);
+    np02_xy bb_xy_max(0.0, 0.0);
+    shape->get_bb(&bb_xy_min, &bb_xy_max);
+    bb_xy_min.set_x(bb_xy_min.get_x() - extra_search_d);
+    bb_xy_min.set_y(bb_xy_min.get_y() - extra_search_d);
+    bb_xy_max.set_x(bb_xy_max.get_x() + extra_search_d);
+    bb_xy_max.set_y(bb_xy_max.get_y() + extra_search_d);    
+    np02_uint16_pair ij_min(0, 0); 
+    np02_uint16_pair ij_max(0, 0);
+    loc_grid_dim.get_bb_indices(bb_xy_min, bb_xy_max, &ij_min, &ij_max);
+    np02_xy node_xy(0.0,0.0);
+    const double threshold_d_from = /* set threshold to avoid false errors */
+        extra_search_d - ( loc_grid_dim.get_sq_size() / 2.0 );
+    for(uint16_t i = ij_min.first; i <= ij_max.first; ++i ){
+        node_xy.set_x( loc_grid_dim.get_sq_ctr_x(i) );
+        for (uint16_t j = ij_min.second; j <= ij_max.second; ++j) {
+            node_xy.set_y(loc_grid_dim.get_sq_ctr_y(j));
+            const double d_from = shape->get_distance_from_xy(node_xy, NULL);
+            if( d_from <= threshold_d_from ){
+                size_t node_count = 0;
+                static const size_t node_count_threshold = 0xFFFFFF;
+                size_t found_shape_node_count = 0;                 
+                const np02_loc_grid_node *n = 
+                    loc_grid->get_loc_grid_head_node(i,j);
+                while( ( NULL != n ) && ( node_count < node_count_threshold ) ){
+                    ++node_count;
+                    if( n->get_owner() == shape ){
+                        ++found_shape_node_count;
+                        }
+                    n = n->get_next();
+                    }
+                if(1 != found_shape_node_count){
+                    ++err_cnt;
+                    np02_snprintf(err_msg, err_msg_capacity, err_msg_pos,
+                        "loc_grid=%llx  shape=%llx  i=%i  j=%i  x=%f  y=%f" 
+                        " loc_grid node for shape: count=%i != 1\n", loc_grid, 
+                        i, j, node_xy.get_x(), node_xy.get_y(),
+                        found_shape_node_count );
+                    }
+                }
+            }
+        }
+    }
+return err_cnt;
 }
 
 std::ostream& np02_shape::ostream_output(std::ostream& os) const{
@@ -1093,52 +1340,88 @@ return os;
 void np02_shape::write_bmp_file(const np02_xy& xy_min,
     const double& pixel_num, const np02_bmp_color& color,
     np02_bmp_file *bmp_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != bmp_file);
-const int32_t& width_px = bmp_file->get_width_px();
-const int32_t& height_px = bmp_file->get_height_px();
 
 np02_xy bb_xy_min, bb_xy_max;
 get_bb(&bb_xy_min, &bb_xy_max);
 
 const int32_t i_min_a = static_cast<int32_t>(
     (bb_xy_min.get_x() - xy_min.get_x()) * pixel_num);
-const int32_t i_min = (i_min_a < 0 ) ? 0 : 
-    ( i_min_a >= width_px ) ? (width_px-1) : i_min_a;
+const int32_t& i_min = bmp_file->get_clamped_i(i_min_a);
 
 const int32_t i_max_a = static_cast<int32_t>(
     (bb_xy_max.get_x() - xy_min.get_x()) * pixel_num);
-const int32_t i_max = (i_max_a < 0 ) ? 0 : 
-    ( i_max_a >= width_px ) ? (width_px-1) : i_max_a;
+const int32_t i_max = bmp_file->get_clamped_i(i_max_a);
 
 const int32_t j_min_a = static_cast<int32_t>(
     (bb_xy_min.get_y() - xy_min.get_y()) * pixel_num);
-const int32_t j_min = (j_min_a < 0 ) ? 0 : 
-    ( j_min_a >= height_px ) ? (height_px-1) : j_min_a;
+const int32_t& j_min = bmp_file->get_clamped_j(j_min_a);
 
 const int32_t j_max_a = static_cast<int32_t>(
     (bb_xy_max.get_y() - xy_min.get_y()) * pixel_num);
-const int32_t j_max = (j_max_a < 0 ) ? 0 : 
-    ( j_max_a >= height_px ) ? (height_px-1) : j_max_a;
+const int32_t& j_max = bmp_file->get_clamped_j(j_max_a);
 
 np02_xy xy;
 for(int32_t i = i_min; i <= i_max; ++i){
-    AA_INCR_CALL_DEPTH();
+    AA_CALL_DEPTH_BLOCK();
     xy.set_x(xy_min.get_x() + (static_cast<double>(i) / pixel_num));
     for(int32_t j = j_min; j <= j_max; ++j){
-        AA_INCR_CALL_DEPTH();
+        AA_CALL_DEPTH_BLOCK();
         CF01_HASH_CONSISTENCY_CHECK( this->hash() );
         xy.set_y(xy_min.get_y() + (static_cast<double>(j) / pixel_num));
         const double d = get_distance_from_xy(xy);
         if(d <= 0.0 ){
             bmp_file->draw_pixel(i,j,color);
             }
-        AA_DECR_CALL_DEPTH();
         }
-    AA_DECR_CALL_DEPTH();
     }
-AA_DECR_CALL_DEPTH();
+}
+
+void np02_shape::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+AA_CALL_DEPTH_BLOCK();
+CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+AA_ALWAYS_ASSERT(NULL != bmp_file);
+AUTO_ASSERT(pixel_num > 0.0);
+
+np02_xy bb_xy_min, bb_xy_max;
+get_bb(&bb_xy_min, &bb_xy_max);
+
+const int32_t i_min_a = static_cast<int32_t>(
+    ((bb_xy_min.get_x() - xy_min.get_x()) * pixel_num) - 0.5);
+const int32_t& i_min = bmp_file->get_clamped_i(i_min_a);
+
+const int32_t i_max_a = static_cast<int32_t>(
+    ((bb_xy_max.get_x() - xy_min.get_x()) * pixel_num) + 0.5);
+const int32_t i_max = bmp_file->get_clamped_i(i_max_a);
+
+const int32_t j_min_a = static_cast<int32_t>(
+    ((bb_xy_min.get_y() - xy_min.get_y()) * pixel_num) - 0.5);
+const int32_t& j_min = bmp_file->get_clamped_j(j_min_a);
+
+const int32_t j_max_a = static_cast<int32_t>(
+    ((bb_xy_max.get_y() - xy_min.get_y()) * pixel_num) + 0.5);
+const int32_t& j_max = bmp_file->get_clamped_j(j_max_a);
+
+const double d_threshold = ( pixel_num > 0.0 ) ? ( 0.75 / pixel_num ) : 1.0;
+
+np02_xy xy;
+for(int32_t i = i_min; i <= i_max; ++i){
+    AA_CALL_DEPTH_BLOCK();
+    xy.set_x(xy_min.get_x() + (static_cast<double>(i) / pixel_num));
+    for(int32_t j = j_min; j <= j_max; ++j){
+        AA_CALL_DEPTH_BLOCK();
+        CF01_HASH_CONSISTENCY_CHECK( this->hash() );
+        xy.set_y(xy_min.get_y() + (static_cast<double>(j) / pixel_num));
+        const double d = get_distance_from_xy(xy);
+        if( fabs(d) <= d_threshold ){
+            bmp_file->draw_pixel(i,j,color);
+            }
+        }
+    }
 }
 
 void np02_shape::write_dxf_file(const std::string& layer,
@@ -1146,6 +1429,29 @@ void np02_shape::write_dxf_file(const std::string& layer,
 
 }
 
+/* shape_copy() implementation */
+void np02_shape::copy_shape_data_to( np02_shape *destination_shape) const{
+AUTO_ASSERT( NULL != destination_shape );
+destination_shape->m_shape_type     = m_shape_type;
+destination_shape->m_orientation    = m_orientation;
+destination_shape->m_invert_status  = m_invert_status;
+destination_shape->m_pad            = m_pad;
+}
+
+/* compare() implementation */
+int np02_shape::compare_shape_data( const np02_shape *other ) const{
+int result = 0;
+if( NULL == other ){ result = 1; }
+else if( m_shape_type < other->m_shape_type ){ result = -1; }
+else if( other->m_shape_type < m_shape_type ){ result = 1; }
+else if( m_orientation < other->m_orientation ){ result = -1; }
+else if( other->m_orientation < m_orientation ){ result = 1; }
+else if( m_invert_status < other->m_invert_status ){ result = -1; }
+else if( other->m_invert_status < m_invert_status ){ result = 1; }
+else if( m_pad < other->m_pad ){ result = -1; }
+else if( other->m_pad < m_pad ){ result = 1; }
+return result;
+}
 
 uint64_t np02_shape_vec_hash( const np02_shape_vec& v,
     const uint64_t& h_in ){
@@ -1163,6 +1469,80 @@ for( np02_shape_vec_citr v_itr = v.begin(); v_itr != v.end(); ++v_itr ){
 return h;
 }
 
+void np02_shape_vec_copy_shapes( const np02_shape_vec& v, 
+    np02_shape_vec *destination, np02_shp_alloc *shp_alloc){
+AA_CALL_DEPTH_BLOCK();
+if( NULL != destination ){
+    destination->reserve( destination->size() + v.size() );
+    np02_shape_vec_citr shape_itr = v.begin();
+    for(; shape_itr != v.end(); ++shape_itr){
+        const np02_shape *master = *shape_itr;
+        np02_shape *s = (NULL == master) ? NULL : master->copy_shape(shp_alloc);
+        destination->push_back(s);
+        }
+    AUTO_ASSERT( (destination->size() > v.size()) ||
+        ( 0 == np02_shape_vec_compare( v, *destination ) ) );
+    }
+}
+
+int np02_shape_vec_compare( const np02_shape_vec& x,
+    const np02_shape_vec& y ){
+int result = 0;
+np02_shape_vec_citr x_itr = x.begin();
+np02_shape_vec_citr y_itr = y.begin();
+for(; (0==result) && (x_itr!=x.end()) && (y_itr!=y.end()); ++x_itr, ++y_itr){
+    const np02_shape *shape_x = *x_itr;
+    const np02_shape *shape_y = *y_itr;
+    if( NULL == shape_x ){
+        if( NULL == shape_y ){
+            AUTO_ASSERT( 0 == result );
+            }
+        else{
+            result = -1;
+            }
+        }
+    else if( NULL == shape_y ){
+        result = 1;
+        }
+    else{
+        result = shape_x->compare(shape_y);
+        }
+    }
+if( 0 == result ){
+    if( x.size() < y.size() ){ result = -1; }
+    else if( y.size() < x.size() ){ result = 1; }
+    }
+return result;
+}
+
+void np02_shape_vec_get_bb(const np02_shape_vec& v, np02_xy* xy_min,
+    np02_xy* xy_max, bool* valid) {
+bool vld = false;
+if ((NULL != xy_min) && (NULL != xy_max)) {
+    np02_xy shp_bb_xy_min(0.0, 0.0);
+    np02_xy shp_bb_xy_max(0.0, 0.0);
+    for (np02_shape_vec_citr v_itr = v.begin(); v_itr != v.end(); ++v_itr) {
+        const np02_shape* shp = *v_itr;
+        if (NULL != shp) {
+            shp->get_bb(&shp_bb_xy_min, &shp_bb_xy_max);
+            if (!vld){
+                vld = true;
+                *xy_min = shp_bb_xy_min;
+                *xy_max = shp_bb_xy_max;
+                }
+            else{
+                AUTO_ASSERT(vld);
+                np02_shape::bb_merge(*xy_min, *xy_max, shp_bb_xy_min,
+                    shp_bb_xy_max, xy_min, xy_max);
+                }
+            }
+        }
+    }
+if (NULL != valid) {
+    *valid = vld;
+    }
+}
+
 
 np02_circle::np02_circle():m_ctr(0.0, 0.0), m_radius(0.0){
 set_shape_type(NP02_SHAPE_TYPE_CIRCLE);
@@ -1171,20 +1551,19 @@ set_shape_type(NP02_SHAPE_TYPE_CIRCLE);
 np02_circle::~np02_circle(){}
 
 void np02_circle::get_bb(np02_xy *xy_min, np02_xy *xy_max) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != xy_min);
 AA_ALWAYS_ASSERT(NULL != xy_max);
 xy_min->set_x(m_ctr.get_x()-m_radius);
 xy_min->set_y(m_ctr.get_y()-m_radius);
 xy_max->set_x(m_ctr.get_x()+m_radius);
 xy_max->set_y(m_ctr.get_y()+m_radius);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_circle::get_loc_grid_indices_for_init(
     const np02_loc_grid_dim& loc_grid_dim, const double& extra_search_d,
     np02_uint16_pair_vec *index_vec) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AUTO_ASSERT(m_radius >= 0.0);
 AUTO_ASSERT(loc_grid_dim.get_sq_size() > 0.0);
 AUTO_ASSERT(extra_search_d >= 0.0);
@@ -1225,12 +1604,11 @@ for( i = ij_min.first; i <= ij_max.first; ++i ){
             }
         }
     }
-AA_DECR_CALL_DEPTH();
 }
 
 double np02_circle::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 const double dx = xy.get_x() - m_ctr.get_x();
 const double dy = xy.get_y() - m_ctr.get_y();
@@ -1256,14 +1634,25 @@ if(NULL != near_xy){
         near_xy->set_y(m_ctr.get_y() + (f * dy));
         }
     }
-AA_DECR_CALL_DEPTH();
 return d;
+}
+
+double np02_circle::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
+AUTO_ASSERT( NP02_SHAPE_ORIENTATION_FWD == get_shape_orientation());
+const double d = get_distance_from_xy( xy, near_xy );
+const double bseg_dist_from = 
+    ( NP02_SHAPE_INVERT_STATUS_NORMAL == get_shape_invert_status() ) ? d : -d;
+if( NULL != d_from2 ){
+    *d_from2 = 0.0;
+    }
+return bseg_dist_from;
 }
 
 double np02_circle::get_distance_from_line_seg_ab(const np02_xy& xy_a,
     const np02_xy& xy_b, np02_xy *near_xy,
     np02_xy *other_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(m_radius >= 0.0);
 double dx, dy, dsq, d;
@@ -1374,13 +1763,12 @@ else{
         }
     }
 d = d_ctr - m_radius;
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_circle::get_distance_from_circle(const np02_circle *c,
     np02_xy *near_xy, np02_xy *circle_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != c);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -1418,24 +1806,22 @@ if((NULL != near_xy) || (NULL != circle_near_xy)){
             ((c->get_radius()) * unit_v.get_y()));
         }
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_circle::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != a);
 double d = a->get_distance_from_circle( this, arc_near_xy, near_xy);
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_circle::get_distance_from_line_seg(
     const np02_line_seg *n, np02_xy *near_xy,
     np02_xy *line_seg_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(m_radius >= 0.0);
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -1477,13 +1863,12 @@ if(NULL != near_xy){
         }
     }
 if(NULL != line_seg_near_xy){*line_seg_near_xy = seg_near_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_circle::get_distance_from_rect(const np02_rect *r,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != r);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -1526,13 +1911,12 @@ if(NULL != near_xy){
         }
     }
 if(NULL != rect_near_xy){*rect_near_xy = rectangle_near_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_circle::get_distance_from_polygon(const np02_polygon *p,
     np02_xy *near_xy, np02_xy *polygon_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != p);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -1572,14 +1956,13 @@ if(NULL != near_xy){
         }
     }
 if(NULL != polygon_near_xy){*polygon_near_xy = poly_near_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_circle::get_distance_from_shape(const np02_shape *s,
     np02_xy *near_xy, np02_xy *other_near_xy) const{
 double d = 0.0;
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 if(NULL != s){
     const np02_circle *c = dynamic_cast<const np02_circle *>(s);
@@ -1596,7 +1979,6 @@ if(NULL != s){
     else if(NULL!=i){ AA_ALWAYS_ASSERT(false); /* spline query not supported */ }
     else{ AA_ALWAYS_ASSERT(false); }
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
@@ -1623,6 +2005,56 @@ if( ( 0.0 != rot_deg ) && ( -360.0 != rot_deg ) && ( 360.0 != rot_deg ) ){
         m_ctr.set_y(rot_ctr.get_y() + rot_arm_final.get_y());
         }
     }
+}
+
+np02_shape *np02_circle::copy_shape(np02_shp_alloc *shp_alloc) const{
+AA_CALL_DEPTH_BLOCK();
+np02_circle *c = copy_circle(shp_alloc);
+AUTO_ASSERT( 0 == compare(c) );
+return c;
+}
+
+np02_circle *np02_circle::copy_circle(np02_shp_alloc *shp_alloc) const{
+np02_circle *c = ( NULL == shp_alloc ) ?
+    new np02_circle() : shp_alloc->alloc_circle();
+c->init_from_circle( this );
+return c;
+}
+
+void np02_circle::init_from_circle( const np02_circle *master ){
+AA_CALL_DEPTH_BLOCK();
+if( NULL != master ){
+    master->copy_shape_data_to(this);
+    m_ctr = master->m_ctr;
+    m_radius = master->m_radius;
+    AUTO_ASSERT( 0 == compare_circle(master) );
+    }
+}
+
+int np02_circle::compare( const np02_shape *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    const np02_circle *other_circle = dynamic_cast<const np02_circle *>(other);
+    AUTO_ASSERT( NULL != other_circle );
+    if( NULL == other_circle ){
+        result = 1;
+        }
+    else{
+        result = compare_circle(other_circle);
+        }
+    }
+return result;
+}
+
+int np02_circle::compare_circle( const np02_circle *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    if( m_ctr < other->m_ctr ){ result = -1; }
+    else if( other->m_ctr < m_ctr ){ result = 1; }
+    else if( m_radius < other->m_radius ){ result = -1; }
+    else if( other->m_radius < m_radius ){ result = 1; }
+    }
+return result;
 }
 
 uint64_t np02_circle::hash( const uint64_t& h_in ) const{
@@ -1685,13 +2117,18 @@ void np02_circle::write_bmp_file(const np02_xy& xy_min,
 np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 }
 
+void np02_circle::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file_edge(xy_min, pixel_num, color, bmp_file);
+}
+
 void np02_circle::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(NULL != dxf_file);
 dxf_file->draw_circle( layer, m_ctr.get_x(), m_ctr.get_y(), m_radius, color );
-AA_DECR_CALL_DEPTH();
 }
 
 size_t np02_circle::circle_circle_intersect(const np02_circle *c,
@@ -1708,7 +2145,7 @@ return intsct_count;
 size_t np02_circle::circle_circle_intsct(const np02_xy& ctr_a,
     const double& r_a, const np02_xy& ctr_b, const double& r_b,
     np02_xy *xy_intsct_0, np02_xy *xy_intsct_1){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AUTO_ASSERT(r_a >= 0.0);
 AUTO_ASSERT(r_b >= 0.0);
 size_t intsct_count = 0;
@@ -1797,8 +2234,6 @@ else{
 AUTO_ASSERT( 0 == verify_data_circle_circle_intsct_result( ctr_a,
     r_a, ctr_b, r_b, xy_intsct_0, xy_intsct_1, intsct_count,
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-
-AA_DECR_CALL_DEPTH();
 return intsct_count;
 }
 
@@ -1878,7 +2313,7 @@ set_shape_type(NP02_SHAPE_TYPE_ARC);
 np02_arc::~np02_arc(){}
 
 void np02_arc::init(const init_params& prm){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 const np02_xy& ctr = prm.m_ctr; 
 const double& radius = prm.m_radius; 
 const double& start_angle_deg = prm.m_start_angle_deg; 
@@ -1942,19 +2377,17 @@ init_bb();
 
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::init_force_p01(const init_params& prm, 
     const init3pt_aux_params& aux_prm) {
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 init(prm);
 m_p_0 = aux_prm.m_p_0;
 m_p_1 = aux_prm.m_p_1;
 init_bb();
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
-AA_DECR_CALL_DEPTH();
 }
 
 /*
@@ -1971,7 +2404,7 @@ https://mathworld.wolfram.com/Circumcircle.html
 */
 void np02_arc::init3pt_to_init_params( const init3pt_params& init3pt_prm,
     init_params *init_prm, init3pt_aux_params *aux_params ){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 const np02_xy& pa = init3pt_prm.m_pa; 
 const np02_xy& pb = init3pt_prm.m_pb;
 const np02_xy& pc = init3pt_prm.m_pc;
@@ -2121,7 +2554,6 @@ if( NULL != aux_params ){
     aux_params->m_is_straight = is_straight;
     }
 
-AA_DECR_CALL_DEPTH();
 }
 
 bool np02_arc::arc_is_approx_straight_line_seg() const{
@@ -2169,18 +2601,17 @@ return d;
 }
 
 void np02_arc::get_bb(np02_xy *xy_min, np02_xy *xy_max) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != xy_min);
 AA_ALWAYS_ASSERT(NULL != xy_max);
 *xy_min = m_bb_xy_min;
 *xy_max = m_bb_xy_max;
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_loc_grid_indices_for_init(
     const np02_loc_grid_dim& loc_grid_dim, const double& extra_search_d,
     np02_uint16_pair_vec *index_vec) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AUTO_ASSERT(m_radius >= 0.0);
 AUTO_ASSERT(m_width >= 0.0);
 AUTO_ASSERT(loc_grid_dim.get_sq_size() > 0.0);
@@ -2222,13 +2653,11 @@ for( i = ij_min.first; i <= ij_max.first; ++i ){
             }
         }
     }
-
-AA_DECR_CALL_DEPTH();
 }
 
 double np02_arc::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double d = 0.0;
 if( arc_is_approx_straight_line_seg() ){
@@ -2240,14 +2669,198 @@ else{
     const double hw = m_width / 2.0;
     d = get_distance_from_xy_hw(xy, hw, near_xy);
     }
-AA_DECR_CALL_DEPTH();
 return d;
+}
+
+double np02_arc::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
+double d_from = 0.0;
+const double df = get_distance_from_xy(xy, near_xy);
+AUTO_ASSERT( m_width >= 0.0 );
+if( m_width > 0.0 ){
+    switch(get_shape_invert_status()){
+        /*              _______ 
+                    ..           ..
+                /       inside        \
+              /      ___------___       \ outside
+             |    +--            --+    |
+              \      ___ ---- ___      /
+                ----              ----
+        */
+        case NP02_SHAPE_INVERT_STATUS_NORMAL:
+            d_from = df;
+            break;
+
+        /*              _______ 
+                    ..           ..
+                /       outside       \
+              /      ___------___       \ inside
+             |    +--            --+    |
+              \      ___ ---- ___      /
+                ----              ----
+        */
+
+        case NP02_SHAPE_INVERT_STATUS_INVERTED:
+            d_from = -df;
+            break;
+
+        case NP02_SHAPE_INVERT_STATUS_COUNT:
+        default:
+            d_from = df;
+            AUTO_ASSERT(false);
+            break;
+        }
+    }
+else{
+    AUTO_ASSERT( df >= 0.0 );
+    enum zone_selector{
+        ZONE_SELECTOR_PERP_ZONE,
+        ZONE_SELECTOR_ZONE_0,
+        ZONE_SELECTOR_ZONE_1,
+        ZONE_SELECTOR_COUNT
+        };
+    zone_selector zone_sel = ZONE_SELECTOR_COUNT;
+    const double d_in_zone_0 = distance_in_zone_0(xy);
+    const double d_in_zone_1 = distance_in_zone_1(xy);
+    if( d_in_zone_0 <= 0.0 ){
+        if( d_in_zone_1 <= 0.0 ){
+            AUTO_ASSERT(is_in_perp_zone(xy));
+            zone_sel = ZONE_SELECTOR_PERP_ZONE;
+            }
+        else{
+            AUTO_ASSERT( is_in_zone_1(xy) && !is_in_zone_0(xy) );
+            zone_sel = (is_less_than_half_circle()) ?
+                ZONE_SELECTOR_ZONE_1 : ZONE_SELECTOR_PERP_ZONE;
+            }
+        }
+    else{
+        if( d_in_zone_1 <= 0.0 ){
+            AUTO_ASSERT( is_in_zone_0(xy) && !is_in_zone_1(xy) );
+            zone_sel = (is_less_than_half_circle()) ?
+                ZONE_SELECTOR_ZONE_0 : ZONE_SELECTOR_PERP_ZONE;
+            }
+        else{
+            AUTO_ASSERT( is_in_zone_0(xy) && is_in_zone_1(xy) );
+            if(is_less_than_half_circle()){
+                zone_sel = ( d_in_zone_0 < d_in_zone_1 ) ?
+                    ZONE_SELECTOR_ZONE_1 : ZONE_SELECTOR_ZONE_0;
+                }
+            else{
+                zone_sel = ( d_in_zone_0 < d_in_zone_1 ) ?
+                    ZONE_SELECTOR_ZONE_0 : ZONE_SELECTOR_ZONE_1;
+                }
+            }
+        }
+
+    bool inside_if_ori_fwd = false;
+    switch(zone_sel){
+        case ZONE_SELECTOR_PERP_ZONE:{
+            if( m_radius > 0.0 ){
+                const double r_sq = m_radius * m_radius;
+                const double ctr_to_xy_sq = m_ctr.get_dsq_to(xy);
+                inside_if_ori_fwd = (r_sq < ctr_to_xy_sq) ? true : false; 
+                }
+            else{
+                inside_if_ori_fwd = false;
+                }
+            }
+            break;
+        case ZONE_SELECTOR_ZONE_0:{
+            const np02_xy p0_to_xy( xy.get_x() - m_p_0.get_x(),
+                                    xy.get_y() - m_p_0.get_y() );
+            const double fwd_0_cross_p0_to_xy = m_fwd_0.cross(p0_to_xy);
+            inside_if_ori_fwd = (0.0 < fwd_0_cross_p0_to_xy) ? true : false;
+            }
+            break;
+        case ZONE_SELECTOR_ZONE_1:{
+            const np02_xy p1_to_xy( xy.get_x() - m_p_1.get_x(),
+                                    xy.get_y() - m_p_1.get_y() );
+            const double fwd_1_cross_p1_to_xy = m_fwd_1.cross(p1_to_xy);
+            inside_if_ori_fwd = (0.0 < fwd_1_cross_p1_to_xy) ? true : false;
+            }
+            break;
+        case ZONE_SELECTOR_COUNT :
+        default:
+            AUTO_ASSERT(false);
+            break;
+        }
+
+    switch(get_shape_orientation()){
+        /*  NP02_SHAPE_ORIENTATION_FWD        
+                   d_from > 0
+ 
+                         \fwd0
+                           \    OUT
+                       OUT   \
+                        ***    \
+         OUT       *           * \
+                *       IN        +P0
+              *                  .  \      OUT
+             +P1               .      \
+            /     .           .         \
+        OUT/           .    .        IN   \
+          /  IN           +ctr              \
+         /       
+        fwd1              IN
+
+                     d_from < 0
+        */
+        case NP02_SHAPE_ORIENTATION_FWD:
+            d_from = inside_if_ori_fwd ? -df : df;
+            break;
+
+        
+        /*   NP02_SHAPE_ORIENTATION_REV       
+                   d_from < 0
+ 
+                         \fwd0
+                           \     IN
+                        IN   \
+                        ***    \
+          IN       *           * \
+                *      OUT        +P0
+              *                  .  \       IN
+             +P1               .      \
+            /     .           .         \
+         IN/           .    .       OUT   \
+          / OUT           +ctr              \
+         /       
+        fwd1             OUT
+
+                     d_from > 0
+        */
+        case NP02_SHAPE_ORIENTATION_REV:
+            d_from = inside_if_ori_fwd ? df : -df;
+            break;
+
+        case NP02_SHAPE_ORIENTATION_COUNT:
+        default:
+             d_from = inside_if_ori_fwd ? -df : df;
+            AUTO_ASSERT(false);
+            break;
+        }
+    }
+
+if( NULL != d_from2 ){
+    const double d_from_zone_0 = -distance_in_zone_0(xy);
+    const double d_from_zone_1 = -distance_in_zone_1(xy);
+    if( is_less_than_half_circle() ){
+        *d_from2 = (d_from_zone_0 < d_from_zone_1) ? 
+                d_from_zone_1 : d_from_zone_0;
+        }
+    else{
+        *d_from2 = (d_from_zone_0 < d_from_zone_1) ? 
+                d_from_zone_0 : d_from_zone_1;
+        }
+    }
+
+return d_from;
 }
 
 double np02_arc::get_distance_from_line_seg_ab(const np02_xy& xy_a,
     const np02_xy& xy_b, np02_xy *near_xy,
     np02_xy *other_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(m_radius >= 0.0);
 double d = 0.0;
@@ -2263,13 +2876,12 @@ else{
     d = get_distance_from_line_seg( &line_seg_ab, near_xy,
         other_near_xy);
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_arc::get_distance_from_circle(const np02_circle *c,
     np02_xy *near_xy, np02_xy *circle_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != c);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -2299,16 +2911,20 @@ else{
         }
     }
 
-AUTO_ASSERT( (NULL == near_xy) || 
-    (get_distance_from_xy( *near_xy ) < 
-    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
-AA_DECR_CALL_DEPTH();
+AUTO_ASSERT((NULL == near_xy) ||
+    (get_distance_from_xy(*near_xy) <
+        (np02_shape::m_little_ratio *
+            (1.0 + m_radius + m_width + (c->get_radius())))));
+AUTO_ASSERT((NULL == circle_near_xy) ||
+    (c->get_distance_from_xy(*circle_near_xy) <
+        (np02_shape::m_little_ratio *
+            (1.0 + m_radius + m_width + (c->get_radius())))));
 return d_from;
 }
 
 double np02_arc::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double d_from = 0.0;
 if( arc_is_approx_straight_line_seg() ){
@@ -2317,7 +2933,12 @@ if( arc_is_approx_straight_line_seg() ){
     d_from = straight_seg.get_distance_from_arc(a, near_xy, arc_near_xy );
     AUTO_ASSERT( (NULL == near_xy) || 
         (get_distance_from_xy( *near_xy ) < 
-        ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
+        ( np02_shape::m_little_ratio * 
+            (1.0 + m_radius + m_width + (a->m_radius) + (a->m_width)) )));
+    AUTO_ASSERT((NULL == arc_near_xy) ||
+        (a->get_distance_from_xy(*arc_near_xy) <
+        (np02_shape::m_little_ratio * 
+            (1.0 + m_radius + m_width + (a->m_radius) + (a->m_width)))));
     }
 else if ( a->arc_is_approx_straight_line_seg()) {
     np02_line_seg straight_seg_a;
@@ -2325,7 +2946,12 @@ else if ( a->arc_is_approx_straight_line_seg()) {
     d_from = get_distance_from_line_seg(&straight_seg_a, near_xy, arc_near_xy );
     AUTO_ASSERT( (NULL == near_xy) || 
         (get_distance_from_xy( *near_xy ) < 
-        ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
+        ( np02_shape::m_little_ratio * 
+            (1.0 + m_radius + m_width + (a->m_radius) + (a->m_width) ))));
+    AUTO_ASSERT((NULL == arc_near_xy) ||
+        (a->get_distance_from_xy(*arc_near_xy) <
+        (np02_shape::m_little_ratio * 
+            (1.0 + m_radius + m_width + (a->m_radius) + (a->m_width)))));
     }
 else{
     np02_dist_from_xy_xy best_result;
@@ -2386,18 +3012,19 @@ else{
 
 AUTO_ASSERT( (NULL == near_xy) || 
     (get_distance_from_xy( *near_xy ) < 
-    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
-AUTO_ASSERT( (NULL == arc_near_xy) || 
+    ( np02_shape::m_little_ratio *
+        (1.0 + m_radius + m_width + (a->m_radius) + (a->m_width)) )));
+AUTO_ASSERT( (NULL == arc_near_xy) ||
     (a->get_distance_from_xy( *arc_near_xy ) < 
-    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
-AA_DECR_CALL_DEPTH();
+    ( np02_shape::m_little_ratio *
+        (1.0 + m_radius + m_width + (a->m_radius) + (a->m_width)) )));
 return d_from;
 }
 
 double np02_arc::get_distance_from_line_seg(
     const np02_line_seg *n, np02_xy *near_xy,
     np02_xy *line_seg_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -2466,14 +3093,13 @@ else{
 
 AUTO_ASSERT( (NULL == near_xy) || 
     (get_distance_from_xy( *near_xy ) < 
-    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
-AA_DECR_CALL_DEPTH();
+    ( np02_shape::m_little_ratio * (1.0 + m_radius + m_width + (n->get_len()) + (n->get_width())) )));
 return d_from;
 }
 
 double np02_arc::get_distance_from_rect(const np02_rect *rect,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != rect);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -2597,14 +3223,13 @@ else{
 
 AUTO_ASSERT( (NULL == near_xy) || 
     (get_distance_from_xy( *near_xy ) < 
-    ( np02_shape::m_small_ratio * (1.0 + m_radius + m_width) )));
-AA_DECR_CALL_DEPTH();
+    ( np02_shape::m_little_ratio * (1.0 + m_radius + m_width + (rect->get_w()) + (rect->get_h())))));
 return d_from;
 }
 
 double np02_arc::get_distance_from_polygon(const np02_polygon *p,
     np02_xy *near_xy, np02_xy *polygon_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != p);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -2615,14 +3240,13 @@ double d = 0.0;
 /* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_arc::get_distance_from_shape(const np02_shape *s,
     np02_xy *near_xy, np02_xy *other_near_xy) const{
 double d = 0.0;
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 if(NULL != s){
     if( arc_is_approx_straight_line_seg() ){
@@ -2646,14 +3270,13 @@ if(NULL != s){
         else{ AA_ALWAYS_ASSERT(false); }
         }
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 void np02_arc::translate_no_loc_grid(const np02_xy& dxy){
 if( ( dxy.get_x() != 0.0 ) && ( dxy.get_y() != 0.0 ) ){
     init_params p;
-    if( arc_is_approx_straight_line_seg() ){
+    if( arc_is_approx_straight_line_seg() && (m_radius > 0.0) ){
         init3pt_params init3pt_prm;
         const np02_xy p0( m_p_0.get_x() + dxy.get_x(),
                           m_p_0.get_y() + dxy.get_y() );
@@ -2689,7 +3312,7 @@ if( ( rot_d < -360.0 ) || ( rot_d > 360.0 ) ){
     }
 if( 0.0 != rot_d ){
     init_params p;
-    if( arc_is_approx_straight_line_seg() ){
+    if( arc_is_approx_straight_line_seg() && (m_radius > 0.0) ){
         init3pt_params init3pt_prm;
         np02_xy p0 = m_p_0;
         np02_xy p1 = m_p_1;
@@ -2738,6 +3361,88 @@ if( 0.0 != rot_d ){
         init(p);
         }
     }
+}
+
+np02_shape *np02_arc::copy_shape(np02_shp_alloc *shp_alloc) const{
+AA_CALL_DEPTH_BLOCK();
+np02_arc *a = copy_arc(shp_alloc);
+AUTO_ASSERT( 0 == compare(a) );
+return a;
+}
+
+np02_arc *np02_arc::copy_arc(np02_shp_alloc *shp_alloc) const{
+np02_arc *a = ( NULL == shp_alloc ) ? new np02_arc() : shp_alloc->alloc_arc();
+a->init_from_arc( this );
+return a;
+}
+
+void np02_arc::init_from_arc( const np02_arc *master ){
+AA_CALL_DEPTH_BLOCK();
+if( NULL != master ){
+    master->copy_shape_data_to(this);
+    m_ctr               = master->m_ctr;
+    m_radius            = master->m_radius;
+    m_start_angle_deg   = master->m_start_angle_deg;
+    m_end_angle_deg     = master->m_end_angle_deg;
+    m_width             = master->m_width;
+    m_p_0               = master->m_p_0;
+    m_p_1               = master->m_p_1;
+    m_fwd_0             = master->m_fwd_0; 
+    m_fwd_1             = master->m_fwd_1;
+    m_fwd_dot_0         = master->m_fwd_dot_0; 
+    m_fwd_dot_1         = master->m_fwd_dot_1;
+    m_bb_xy_min         = master->m_bb_xy_min; 
+    m_bb_xy_max         = master->m_bb_xy_max;
+    AUTO_ASSERT( 0 == compare_arc(master) );
+    }
+}
+
+int np02_arc::compare( const np02_shape *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    const np02_arc *other_arc = dynamic_cast<const np02_arc *>(other);
+    AUTO_ASSERT( NULL != other_arc );
+    if( NULL == other_arc ){
+        result = 1;
+        }
+    else{
+        result = compare_arc(other_arc);
+        }
+    }
+return result;
+}
+
+int np02_arc::compare_arc( const np02_arc *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    if( m_ctr < other->m_ctr ){ result = -1; }
+    else if( other->m_ctr < m_ctr ){ result = 1; }
+    else if( m_radius < other->m_radius ){ result = -1; }
+    else if( other->m_radius < m_radius ){ result = 1; }
+    else if( m_start_angle_deg < other->m_start_angle_deg ){ result = -1; }
+    else if( other->m_start_angle_deg < m_start_angle_deg ){ result = 1; }
+    else if( m_end_angle_deg < other->m_end_angle_deg ){ result = -1; }
+    else if( other->m_end_angle_deg < m_end_angle_deg ){ result = 1; }
+    else if( m_width < other->m_width ){ result = -1; }
+    else if( other->m_width < m_width ){ result = 1; }
+    else if( m_p_0 < other->m_p_0 ){ result = -1; }
+    else if( other->m_p_0 < m_p_0 ){ result = 1; }
+    else if( m_p_1 < other->m_p_1 ){ result = -1; }
+    else if( other->m_p_1 < m_p_1 ){ result = 1; }
+    else if( m_fwd_0 < other->m_fwd_0 ){ result = -1; }
+    else if( other->m_fwd_0 < m_fwd_0 ){ result = 1; }
+    else if( m_fwd_1 < other->m_fwd_1 ){ result = -1; }
+    else if( other->m_fwd_1 < m_fwd_1 ){ result = 1; }
+    else if( m_fwd_dot_0 < other->m_fwd_dot_0 ){ result = -1; }
+    else if( other->m_fwd_dot_0 < m_fwd_dot_0 ){ result = 1; }
+    else if( m_fwd_dot_1 < other->m_fwd_dot_1 ){ result = -1; }
+    else if( other->m_fwd_dot_1 < m_fwd_dot_1 ){ result = 1; }
+    else if( m_bb_xy_min < other->m_bb_xy_min ){ result = -1; }
+    else if( other->m_bb_xy_min < m_bb_xy_min ){ result = 1; }
+    else if( m_bb_xy_max < other->m_bb_xy_max ){ result = -1; }
+    else if( other->m_bb_xy_max < m_bb_xy_max ){ result = 1; }
+    }
+return result;
 }
 
 uint64_t np02_arc::hash( const uint64_t& h_in ) const{
@@ -3003,9 +3708,15 @@ void np02_arc::write_bmp_file(const np02_xy& xy_min,
 np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 }
 
+void np02_arc::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file_edge(xy_min, pixel_num, color, bmp_file);
+}
+
 void np02_arc::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(NULL != dxf_file);
 /* centerline */
@@ -3029,7 +3740,6 @@ if( m_width > 0.0 ){
         m_end_angle_deg, m_end_angle_deg+180.0, color );
     }
 
-AA_DECR_CALL_DEPTH();
 }
 
 size_t np02_arc::arc_circle_centerline_intersect(const np02_circle *c,
@@ -3481,7 +4191,7 @@ return err_cnt;
 
 size_t np02_arc::arc_seg_centerline_intersect(const np02_line_seg *n,
     np02_xy *xy_intsct_0, np02_xy *xy_intsct_1) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(m_radius >= 0.0);
@@ -3532,7 +4242,6 @@ else{
             }
         }
     }
-AA_DECR_CALL_DEPTH();
 AUTO_ASSERT( 0 == verify_data_arc_seg_centerline_intersect_result( n,
     xy_intsct_0, xy_intsct_1, intsct_count,
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
@@ -3673,7 +4382,7 @@ if( ( ( m_start_angle_deg <=  -90.0 ) && (  -90.0 <= m_end_angle_deg ) ) ||
 
 double np02_arc::get_distance_from_xy_hw(const np02_xy& xy,
         const double& hw, np02_xy *near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(m_radius >= 0.0);
 AUTO_ASSERT(hw >= 0.0);
@@ -3809,8 +4518,6 @@ else{
             }
         }
     }
-
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
@@ -3836,7 +4543,7 @@ return d;
 */
 void np02_arc::get_distance_from_arc_zone_0(const np02_arc *a,
     np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != a);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -3880,7 +4587,6 @@ result->m_other_near_xy_defined = true;
 
 AUTO_ASSERT( 0 == result->verify_result( this, a, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 /*                                      
@@ -3909,7 +4615,7 @@ AA_DECR_CALL_DEPTH();
 */
 void np02_arc::get_distance_from_arc_zone_1(const np02_arc *a,
     np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != a);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -3954,7 +4660,6 @@ result->m_other_near_xy_defined = true;
 
 AUTO_ASSERT( 0 == result->verify_result( this, a, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 /*                                      ^
@@ -3979,7 +4684,7 @@ inside perp_zone of a   ^
 */
 void np02_arc::get_distance_from_arc_far_perp_zone(const np02_arc *a,
     np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != a);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -4013,12 +4718,11 @@ result->m_other_near_xy_defined = true;
 
 AUTO_ASSERT( 0 == result->verify_result( this, a, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_arc_centerline_intersect(const np02_arc *a,
     np02_dist_from_xy_xy *result_0, np02_dist_from_xy_xy *result_1) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != a);
 AA_ALWAYS_ASSERT(NULL != result_0);
 AA_ALWAYS_ASSERT(NULL != result_1);
@@ -4057,13 +4761,11 @@ for( i = 0; i < 2; ++i ){
     AUTO_ASSERT( 0 == result->verify_result( this, a, 
         AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
     }
-
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_shape_arc_p01(const np02_shape *shp,
     const bool& is_from_p0, np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != shp);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -4107,12 +4809,11 @@ const np02_xy lambda_pd = p01.get_unit_vector_to( result->m_other_near_xy );
 
 AUTO_ASSERT( 0 == result->verify_result( this, shp, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_shape_far_perp_zone(const np02_shape *shp,
     np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != shp);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -4144,12 +4845,11 @@ else{
 
 AUTO_ASSERT( 0 == result->verify_result( this, shp, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_line_seg_far_perp_zone(const np02_line_seg *n,
     np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != n);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -4184,12 +4884,11 @@ else{
 
 AUTO_ASSERT( 0 == result->verify_result( this, n, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_rect_pt(const np02_rect *rect,
     const np02_rect_pt_idx& rect_pt_idx, np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != rect);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -4209,12 +4908,11 @@ result->m_other_near_xy_defined = true;
 
 AUTO_ASSERT( 0 == result->verify_result( this, rect, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_line_seg_p01(const np02_line_seg *n,
     const bool& is_from_seg_p0, np02_dist_from_xy_xy *result) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != n);
 AA_ALWAYS_ASSERT(NULL != result);
@@ -4248,13 +4946,12 @@ const np02_xy lambda_pd = ctr_ln_near_xy.get_unit_vector_to( seg_p_01 );
 
 AUTO_ASSERT( 0 == result->verify_result( this, n, 
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_arc::get_distance_from_line_seg_centerline_intersect(
     const np02_line_seg *n, np02_dist_from_xy_xy *result_0,
     np02_dist_from_xy_xy *result_1) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != n);
 AA_ALWAYS_ASSERT(NULL != result_0);
@@ -4293,7 +4990,6 @@ for( i = 0; i < 2; ++i ){
     AUTO_ASSERT( 0 == result->verify_result( this, n, 
         AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
     }
-AA_DECR_CALL_DEPTH();
 }
 
 
@@ -4308,7 +5004,7 @@ np02_rect::~np02_rect(){}
 /* does not update loctor grid*/
 void np02_rect::init(const np02_xy& ctr, const double& w, const double& h,
     const double& rot_deg){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AUTO_ASSERT(w >= 0.0);
 AUTO_ASSERT(h >= 0.0);
 m_ctr = ctr;
@@ -4366,7 +5062,6 @@ m_p11.set_y( m_ctr.get_y() + offset_11.get_y() );
 
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
-AA_DECR_CALL_DEPTH();
 }
 
 const np02_xy& np02_rect::get_pt_by_idx( const np02_rect_pt_idx& i ) const{
@@ -4395,7 +5090,7 @@ return *pt;
 }
 
 void np02_rect::get_bb(np02_xy *xy_min, np02_xy *xy_max) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != xy_min);
 AA_ALWAYS_ASSERT(NULL != xy_max);
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -4418,14 +5113,13 @@ if( m_p00.get_y() > xy_max->get_y() ){ xy_max->set_y(m_p00.get_y()); }
 if( m_p01.get_y() > xy_max->get_y() ){ xy_max->set_y(m_p01.get_y()); }
 if( m_p10.get_y() > xy_max->get_y() ){ xy_max->set_y(m_p10.get_y()); }
 if( m_p11.get_y() > xy_max->get_y() ){ xy_max->set_y(m_p11.get_y()); }
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_rect::get_loc_grid_indices_for_init(
     const np02_loc_grid_dim& loc_grid_dim,
     const double& extra_search_d, np02_uint16_pair_vec *index_vec)
     const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != index_vec);
 AUTO_ASSERT(extra_search_d >= 0.0);
 AA_XDBG_ASSERT(0 == loc_grid_dim.verify_data(AA_ERR_BUF(),
@@ -4475,15 +5169,13 @@ for( i = ij_min.first; i <= ij_max.first; ++i ){
             }
         }
     }
-
-AA_DECR_CALL_DEPTH();
 }
 
 /* signed distance.  positive => point lies outside rectangle.
   negative => point lies inside rectangle */
 double np02_rect::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_2);
@@ -4566,8 +5258,19 @@ else{
             }
         }
     }
-AA_DECR_CALL_DEPTH();
 return d;
+}
+
+double np02_rect::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
+AUTO_ASSERT( NP02_SHAPE_ORIENTATION_FWD == get_shape_orientation());
+const double d = get_distance_from_xy( xy, near_xy );
+const double bseg_dist_from = 
+    ( NP02_SHAPE_INVERT_STATUS_NORMAL == get_shape_invert_status() ) ? d : -d;
+if( NULL != d_from2 ){
+    *d_from2 = 0.0;
+    }
+return bseg_dist_from;
 }
 
 /* signed distance.  positive => segment lies outside rectangle.
@@ -4575,7 +5278,7 @@ return d;
 double np02_rect::get_distance_from_line_seg_ab(const np02_xy& xy_a,
     const np02_xy& xy_b, np02_xy *near_xy,
     np02_xy *other_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 
 /* distance to line segment endpoints */
@@ -4760,8 +5463,9 @@ if(x_bb_overlap && y_bb_overlap){
                                  B
     */
     np02_xy xy_np00, xy_np01, xy_np10, xy_np11; 
-    bool np00_in_zone, np01_in_zone, np10_in_zone, np11_in_zone;
-    double np00_d, np01_d, np10_d, np11_d;
+    bool np00_in_zone = false, np01_in_zone = false, 
+         np10_in_zone = false, np11_in_zone = false;
+    double np00_d = 0.0, np01_d = 0.0, np10_d = 0.0, np11_d=0.0;
     for(size_t i = 0; i < 4; ++i){
         const np02_xy *corner_xy;
         np02_xy *xy_np;
@@ -4877,13 +5581,12 @@ if(x_bb_overlap && y_bb_overlap){
 
 if(NULL != near_xy){ *near_xy = nr_xy; }
 if(NULL != other_near_xy){ *other_near_xy = oth_near_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_rect::get_distance_from_circle(const np02_circle *c,
     np02_xy *near_xy, np02_xy *circle_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != c);
 AUTO_ASSERT(c->get_radius() >= 0.0);
@@ -4927,24 +5630,22 @@ if(NULL != circle_near_xy){
         *circle_near_xy = c->get_ctr();
         }
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_rect::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != a);
 double d = a->get_distance_from_rect( this, arc_near_xy, near_xy );
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_rect::get_distance_from_line_seg(
     const np02_line_seg *n, np02_xy *near_xy,
     np02_xy *line_seg_near_xy)const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 const np02_xy& xy_a = n->get_p_0();
 const np02_xy& xy_b = n->get_p_1();
@@ -5002,13 +5703,12 @@ if(d3 < d){
 
 if(NULL != near_xy){ *near_xy = nr_xy; }
 if( NULL != line_seg_near_xy){ *line_seg_near_xy = ln_seg_near_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_rect::get_distance_from_rect(const np02_rect *r,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 /*
 
@@ -5123,7 +5823,6 @@ if(d_10 < d){
 
 if(NULL != near_xy){ *near_xy = nr_xy; }
 if(NULL != rect_near_xy){ *rect_near_xy = oth_nr_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
@@ -5136,7 +5835,7 @@ return 0.0;
 
 double np02_rect::get_distance_from_shape(const np02_shape *s,
     np02_xy *near_xy, np02_xy *other_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double d = 0.0;
 if(NULL != s){
@@ -5154,21 +5853,19 @@ if(NULL != s){
     else if(NULL!=i){ AA_ALWAYS_ASSERT(false);/* spline not supported */}
     else{ AA_ALWAYS_ASSERT(false); }
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 void np02_rect::translate_no_loc_grid(const np02_xy& dxy){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 const np02_xy ctr(m_ctr.get_x() + dxy.get_x(), m_ctr.get_y() + dxy.get_y());
 init(ctr, m_w, m_h, m_rot_deg);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_rect::rotate_no_loc_grid(const np02_xy& rot_ctr,
     const double& rot_deg){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double cos_rot = 1.0;
 double sin_rot = 0.0;
@@ -5186,7 +5883,82 @@ double rot_d = m_rot_deg + rot_deg;
 if( rot_d > 360.0){ rot_d -= 360.0; }
 else if( rot_d < -360.0){ rot_d -= 360.0; }
 init(ctr, m_w, m_h, rot_d);
-AA_DECR_CALL_DEPTH();
+}
+
+np02_shape *np02_rect::copy_shape(np02_shp_alloc *shp_alloc) const{
+AA_CALL_DEPTH_BLOCK();
+np02_rect *r = copy_rect(shp_alloc);
+AUTO_ASSERT( 0 == compare(r) );
+return r;
+}
+
+np02_rect *np02_rect::copy_rect(np02_shp_alloc *shp_alloc) const{
+np02_rect *r = ( NULL == shp_alloc ) ?
+    new np02_rect() : shp_alloc->alloc_rect();
+r->init_from_rect( this );
+return r;
+}
+
+void np02_rect::init_from_rect( const np02_rect *master ){
+AA_CALL_DEPTH_BLOCK();
+if( NULL != master ){
+    master->copy_shape_data_to(this);
+    m_ctr           = master->m_ctr;
+    m_w             = master->m_w;
+    m_h             = master->m_h;
+    m_rot_deg       = master->m_rot_deg;
+    m_fwd           = master->m_fwd;
+    m_fwd_dot_ctr   = master->m_fwd_dot_ctr; 
+    m_fwd_cross_ctr = master->m_fwd_cross_ctr;
+    m_p00           = master->m_p00;
+    m_p01           = master->m_p01;
+    m_p10           = master->m_p10;
+    m_p11           = master->m_p11;
+    AUTO_ASSERT( 0 == compare_rect(master) );
+    }
+}
+
+int np02_rect::compare( const np02_shape *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    const np02_rect *other_rect = dynamic_cast<const np02_rect *>(other);
+    AUTO_ASSERT( NULL != other_rect );
+    if( NULL == other_rect ){
+        result = 1;
+        }
+    else{
+        result = compare_rect(other_rect);
+        }
+    }
+return result;
+}
+
+int np02_rect::compare_rect( const np02_rect *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    if( m_ctr < other->m_ctr ){ result = -1; }
+    else if( other->m_ctr < m_ctr ){ result = 1; }
+    else if( m_w < other->m_w ){ result = -1; }
+    else if( other->m_w < m_w ){ result = 1; }
+    else if( m_h < other->m_h ){ result = -1; }
+    else if( other->m_h < m_h ){ result = 1; }
+    else if( m_rot_deg < other->m_rot_deg ){ result = -1; }
+    else if( other->m_rot_deg < m_rot_deg ){ result = 1; }
+    else if( m_fwd < other->m_fwd ){ result = -1; }
+    else if( other->m_fwd < m_fwd ){ result = 1; }
+    else if( m_fwd_dot_ctr < other->m_fwd_dot_ctr ){ result = -1; }
+    else if( other->m_fwd_dot_ctr < m_fwd_dot_ctr ){ result = 1; }
+    else if( m_fwd_cross_ctr < other->m_fwd_cross_ctr ){ result = -1; }
+    else if( other->m_fwd_cross_ctr < m_fwd_cross_ctr ){ result = 1; }
+    else if( m_p00 < other->m_p00 ){ result = -1; }
+    else if( other->m_p00 < m_p00 ){ result = 1; }
+    else if( m_p01 < other->m_p01 ){ result = -1; }
+    else if( other->m_p01 < m_p01 ){ result = 1; }
+    else if( m_p10 < other->m_p10 ){ result = -1; }
+    else if( other->m_p10 < m_p10 ){ result = 1; }
+    else if( m_p11 < other->m_p11 ){ result = -1; }
+    else if( other->m_p11 < m_p11 ){ result = 1; }    }
+return result;
 }
 
 uint64_t np02_rect::hash( const uint64_t& h_in ) const{
@@ -5243,7 +6015,6 @@ if((NULL != shp_alloc) &&
     }
 
 err_cnt += verify_data_num(err_msg,err_msg_capacity,err_msg_pos);
-err_cnt += verify_data_rect_loc_grid(err_msg,err_msg_capacity,err_msg_pos);
 return 0;
 }
 
@@ -5478,29 +6249,6 @@ if(fabs(fwd_cross_1 - fwd_cross_11) > max_d_err){
 return err_cnt;
 }
 
-int np02_rect::verify_data_rect_loc_grid( char *err_msg,
-    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
-int err_cnt = 0;
-const np02_loc_grid_node *lg_node = get_head_loc_grid_node();
-const np02_loc_grid *loc_grid = (NULL == lg_node) ?
-    NULL : lg_node->get_loc_grid();
-const double extra_search_d = (NULL == loc_grid) ?
-    0.0 : loc_grid->get_extra_search_d();
-static const np02_loc_grid_dim default_loc_grid_dim;
-const np02_loc_grid_dim& loc_grid_dim = (NULL == loc_grid) ?
-    default_loc_grid_dim : loc_grid->get_loc_grid_dim();
-const size_t max_loc_grid_node_count = 
-    static_cast<size_t>(loc_grid_dim.get_w()) *
-    static_cast<size_t>(loc_grid_dim.get_h());
-/* TODO: check that each locator grid square is within
-    (extra_search_d + sqrt(2)* sq_sz) from from rectangle */
-
-/* TODO: check that, if head locator grid is not NULL, that
-all needed grid squares are on the list */
-
-return err_cnt;
-}
-
 std::ostream& np02_rect::ostream_output(std::ostream& os) const{
 os << "<rect>\n";
 os << std::hex;
@@ -5532,22 +6280,26 @@ return os;
 void np02_rect::write_bmp_file(const np02_xy& xy_min,
     const double& pixel_num, const np02_bmp_color& color,
     np02_bmp_file *bmp_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
-AA_DECR_CALL_DEPTH();
+}
+
+void np02_rect::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file_edge(xy_min, pixel_num, color, bmp_file);
 }
 
 void np02_rect::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(NULL != dxf_file);
 dxf_file->draw_line(layer,m_p00.get_x(),m_p00.get_y(),m_p01.get_x(),m_p01.get_y(),color);
 dxf_file->draw_line(layer,m_p01.get_x(),m_p01.get_y(),m_p11.get_x(),m_p11.get_y(),color);
 dxf_file->draw_line(layer,m_p11.get_x(),m_p11.get_y(),m_p10.get_x(),m_p10.get_y(),color);
 dxf_file->draw_line(layer,m_p10.get_x(),m_p10.get_y(),m_p00.get_x(),m_p00.get_y(),color);
-AA_DECR_CALL_DEPTH();
 }
 
 
@@ -5561,7 +6313,7 @@ np02_line_seg::~np02_line_seg(){}
 
 void np02_line_seg::init(const np02_xy& p_0,const np02_xy& p_1,
     const double& width){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AUTO_ASSERT(width >= 0.0);
 m_p_0 = p_0; 
 m_p_1 = p_1;
@@ -5592,11 +6344,10 @@ m_fwd_cross_01=(m_fwd.get_x()*ctr01.get_y()) - (m_fwd.get_y()*ctr01.get_x());
 
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_1);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_line_seg::get_bb(np02_xy *xy_min, np02_xy *xy_max) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != xy_min);
 AA_ALWAYS_ASSERT(NULL != xy_max);
@@ -5618,14 +6369,13 @@ else{
     xy_min->set_y( m_p_1.get_y() - hw );
     xy_max->set_y( m_p_0.get_y() + hw ); 
     }
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_line_seg::get_loc_grid_indices_for_init(
     const np02_loc_grid_dim& loc_grid_dim,
     const double& extra_search_d, np02_uint16_pair_vec *index_vec)
     const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_ALWAYS_ASSERT(NULL != index_vec);
 AUTO_ASSERT(m_width >= 0.0);
 AUTO_ASSERT(extra_search_d >= 0.0);
@@ -5677,23 +6427,105 @@ for( i = ij_min.first; i <= ij_max.first; ++i ){
             }
         }
     }
-AA_DECR_CALL_DEPTH();
 }
 
 /* hw=0 => get distance from line segment centerline */
 double np02_line_seg::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 const double hw = m_width / 2.0;
 const double d = get_distance_from_xy_hw( xy, hw, near_xy );
-AA_DECR_CALL_DEPTH();
 return d;
+}
+
+double np02_line_seg::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
+double d_from = 0.0;
+const double df = get_distance_from_xy(xy, near_xy);
+AUTO_ASSERT( m_width >= 0.0 );
+if( m_width > 0.0 ){
+    switch(get_shape_invert_status()){
+        /*
+               .------------------.
+              /       inside        \ outside
+             |    +-------------+    |
+              \                     /
+                -------------------
+        */
+        case NP02_SHAPE_INVERT_STATUS_NORMAL:
+            d_from = df;
+            break;
+
+        /*
+               .------------------.
+              /       outside       \ inside
+             |    +-------------+    |
+              \                     /
+                -------------------
+        */
+        case NP02_SHAPE_INVERT_STATUS_INVERTED:
+            d_from = -df;
+            break;
+
+        case NP02_SHAPE_INVERT_STATUS_COUNT:
+        default:
+            d_from = df;
+            AUTO_ASSERT(false);
+            break;
+        }
+    }
+else{
+    AUTO_ASSERT( df >= 0.0 );
+    const double fwd_cross_xy = m_fwd.cross(xy);
+    switch(get_shape_orientation()){
+        /*    
+                    d_from < 0
+                  
+          inside      inside       inside
+        - - - - - +------------>+ - - - - -     m_fwd-->
+          outside     outside      outside
+
+                     d_from > 0
+        */
+        case NP02_SHAPE_ORIENTATION_FWD:
+            d_from = (fwd_cross_xy < m_fwd_cross_01) ? df : -df;
+            break;
+
+        
+        /*    
+                    d_from > 0
+                  
+          outside     outside      outside
+        - - - - - +------------>+ - - - - -    m_fwd-->
+          inside      inside       inside
+
+                     d_from < 0
+        */
+        case NP02_SHAPE_ORIENTATION_REV:
+            d_from = (fwd_cross_xy < m_fwd_cross_01) ? -df : df;
+            break;
+
+        case NP02_SHAPE_ORIENTATION_COUNT:
+        default:
+            d_from = (fwd_cross_xy < m_fwd_cross_01) ? df : -df;
+            AUTO_ASSERT(false);
+            break;
+        }
+    }
+
+if( NULL != d_from2 ){
+    const double fwd_dot_xy = m_fwd.dot(xy);
+    const double d_from_zone_0 = m_fwd_dot_0 - fwd_dot_xy;
+    const double d_from_zone_1 = fwd_dot_xy - m_fwd_dot_1;
+    *d_from2 = (d_from_zone_0 < d_from_zone_1) ? d_from_zone_1 : d_from_zone_0;
+    }
+return d_from;
 }
 
 double np02_line_seg::get_distance_from_xy_hw(const np02_xy& xy,
     const double& hw, np02_xy *near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(m_width >= 0.0);
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -5753,7 +6585,6 @@ else{
     }
 
 const double d = d_ctr - hw;
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
@@ -5768,7 +6599,7 @@ return 0.0;
 double np02_line_seg::get_distance_from_circle(
     const np02_circle *c, np02_xy *near_xy,
     np02_xy *circle_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != c);
 AUTO_ASSERT(c->get_radius() >= 0.0);
@@ -5776,24 +6607,22 @@ AUTO_ASSERT(m_width >= 0.0);
 AA_XDBG_ASSERT(0 == verify_data_num(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), AA_DEBUG_LEVEL_2);
 const double d = c->get_distance_from_line_seg(this, circle_near_xy, near_xy);
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_line_seg::get_distance_from_arc(const np02_arc *a,
     np02_xy *near_xy, np02_xy *arc_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != a);
 double d = a->get_distance_from_line_seg( this, arc_near_xy, near_xy );
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_line_seg::get_distance_from_line_seg(
     const np02_line_seg *n, np02_xy *near_xy,
     np02_xy *line_seg_near_xy)const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(n->get_width() >= 0.0);
@@ -5995,7 +6824,6 @@ if(AA_SHOULD_RUN_XDBG(CF01_AA_DEBUG_LEVEL_1)){
         }
     }
 
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
@@ -6003,7 +6831,7 @@ return d;
 double np02_line_seg::get_distance_from_line_seg_double_check(
     const np02_line_seg *n, double *err_estimate,
     np02_xy *near_xy, np02_xy *line_seg_near_xy)const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double d = 0.0;
 np02_xy nr_xy(0.0, 0.0);
@@ -6100,17 +6928,15 @@ if(NULL != n){
     }
 if(NULL != near_xy){ *near_xy = nr_xy; }
 if(NULL != line_seg_near_xy){ *line_seg_near_xy = oth_nr_xy; }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 double np02_line_seg::get_distance_from_rect(const np02_rect *r,
     np02_xy *near_xy, np02_xy *rect_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != r);
 const double d = r->get_distance_from_line_seg(this, rect_near_xy, near_xy);
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
@@ -6124,7 +6950,7 @@ return 0.0;
 
 double np02_line_seg::get_distance_from_shape(const np02_shape *s,
     np02_xy *near_xy, np02_xy *other_near_xy) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double d = 0.0;
 if(NULL != s){
@@ -6142,24 +6968,22 @@ if(NULL != s){
     else if(NULL != i){ AA_ALWAYS_ASSERT(false);/* spline not supported */}
     else{ AA_ALWAYS_ASSERT(false); }
     }
-AA_DECR_CALL_DEPTH();
 return d;
 }
 
 void np02_line_seg::translate_no_loc_grid(const np02_xy& dxy){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 const np02_xy p0(m_p_0.get_x() + dxy.get_x(), m_p_0.get_y() + dxy.get_y());
 const np02_xy p1(m_p_1.get_x() + dxy.get_x(), m_p_1.get_y() + dxy.get_y());
 AUTO_ASSERT( fabs( m_p_0.get_dsq_to( m_p_1 ) - p0.get_dsq_to( p1 ) )
     <= m_small_ratio * ( m_p_0.get_dsq_to( m_p_1 ) + p0.get_dsq_to( p1 ) ) );
 init(p0, p1, m_width);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_line_seg::rotate_no_loc_grid(const np02_xy& rot_ctr,
 const double& rot_deg){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 double cos_rot = 1.0;
 double sin_rot = 0.0;
@@ -6189,12 +7013,11 @@ const np02_xy p1(
 AUTO_ASSERT( fabs( m_p_0.get_dsq_to( m_p_1 ) - p0.get_dsq_to( p1 ) )
     <= m_small_ratio * ( m_p_0.get_dsq_to( m_p_1 ) + p0.get_dsq_to( p1 ) ) );
 init(p0, p1, m_width);
-AA_DECR_CALL_DEPTH();
 }
 
 size_t np02_line_seg::seg_seg_centerline_intersect(const np02_line_seg *n,
     np02_xy *xy_intsct_0, np02_xy *xy_intsct_1) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 assert( NULL != n );
 size_t intsct_count = 0;
@@ -6275,7 +7098,6 @@ else{
 AUTO_ASSERT( 0 == verify_data_seg_seg_centerline_intersect_result( n,
     xy_intsct_0, xy_intsct_1, intsct_count,
     AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR() ) );
-AA_DECR_CALL_DEPTH();
 return intsct_count;
 }
 
@@ -6283,7 +7105,7 @@ int np02_line_seg::verify_data_seg_seg_centerline_intersect_result(
     const np02_line_seg *n, np02_xy *xy_intsct_0, np02_xy *xy_intsct_1,
     const size_t& intsct_count, char *err_msg,
     const size_t err_msg_capacity, size_t *err_msg_pos ) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 int err_cnt = 0;
 
@@ -6348,9 +7170,73 @@ if( err_cnt > 0 ){
         ( NULL == xy_intsct_1 ) ? 0.0 : xy_intsct_1->get_y(),
         intsct_count );
     }
-
-AA_DECR_CALL_DEPTH();
 return err_cnt;
+}
+
+np02_shape *np02_line_seg::copy_shape(np02_shp_alloc *shp_alloc) const{
+AA_CALL_DEPTH_BLOCK();
+np02_line_seg *n = copy_line_seg(shp_alloc);
+AUTO_ASSERT( 0 == compare(n) );
+return n;
+}
+
+np02_line_seg *np02_line_seg::copy_line_seg(np02_shp_alloc *shp_alloc) const{
+np02_line_seg *n = ( NULL == shp_alloc ) ?
+    new np02_line_seg() : shp_alloc->alloc_line_seg();
+n->init_from_line_seg( this );
+return n;
+}
+
+void np02_line_seg::init_from_line_seg( const np02_line_seg *master ){
+AA_CALL_DEPTH_BLOCK();
+if( NULL != master ){
+    master->copy_shape_data_to(this);
+    m_p_0           = master->m_p_0;
+    m_p_1           = master->m_p_1;
+    m_width         = master->m_width;
+    m_fwd           = master->m_fwd;
+    m_fwd_dot_0     = master->m_fwd_dot_0;
+    m_fwd_dot_1     = master->m_fwd_dot_1;
+    m_fwd_cross_01  = master->m_fwd_cross_01;
+    AUTO_ASSERT( 0 == compare_line_seg(master) );
+    }
+}
+
+int np02_line_seg::compare( const np02_shape *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    const np02_line_seg *other_line_seg =
+        dynamic_cast<const np02_line_seg *>(other);
+    AUTO_ASSERT( NULL != other_line_seg );
+    if( NULL == other_line_seg ){
+        result = 1;
+        }
+    else{
+        result = compare_line_seg(other_line_seg);
+        }
+    }
+return result;
+}
+
+int np02_line_seg::compare_line_seg( const np02_line_seg *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    if( m_p_0 < other->m_p_0 ){ result = -1; }
+    else if( other->m_p_0 < m_p_0 ){ result = 1; }
+    else if( m_p_1 < other->m_p_1 ){ result = -1; }
+    else if( other->m_p_1 < m_p_1 ){ result = 1; }
+    else if( m_width < other->m_width ){ result = -1; }
+    else if( other->m_width < m_width ){ result = 1; }
+    else if( m_fwd < other->m_fwd ){ result = -1; }
+    else if( other->m_fwd < m_fwd ){ result = 1; }
+    else if( m_fwd_dot_0 < other->m_fwd_dot_0 ){ result = -1; }
+    else if( other->m_fwd_dot_0 < m_fwd_dot_0 ){ result = 1; }
+    else if( m_fwd_dot_1 < other->m_fwd_dot_1 ){ result = -1; }
+    else if( other->m_fwd_dot_1 < m_fwd_dot_1 ){ result = 1; }
+    else if( m_fwd_cross_01 < other->m_fwd_cross_01 ){ result = -1; }
+    else if( other->m_fwd_cross_01 < m_fwd_cross_01 ){ result = 1; }
+    }
+return result;
 }
 
 uint64_t np02_line_seg::hash( const uint64_t& h_in ) const{
@@ -6401,7 +7287,6 @@ if((NULL != shp_alloc) &&
     }
 
 err_cnt+=verify_data_num(err_msg,err_msg_capacity,err_msg_pos);
-/* TODO: check locator grid nodes */
 
 return err_cnt;
 }
@@ -6533,15 +7418,20 @@ return os;
 void np02_line_seg::write_bmp_file(const np02_xy& xy_min,
     const double& pixel_num, const np02_bmp_color& color,
     np02_bmp_file *bmp_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
-AA_DECR_CALL_DEPTH();
+}
+
+void np02_line_seg::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file_edge(xy_min, pixel_num, color, bmp_file);
 }
 
 void np02_line_seg::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AUTO_ASSERT(NULL != dxf_file);
 /* centerline */
@@ -6567,7 +7457,6 @@ if( m_width > 0.0 ){
     dxf_file->draw_line(layer,p0_right.get_x(),p0_right.get_y(),
                               p1_right.get_x(),p1_right.get_y(),color);
     }
-AA_DECR_CALL_DEPTH();
 }
 
 
@@ -6599,6 +7488,13 @@ AA_ALWAYS_ASSERT(false);
 
 double np02_polygon::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
+/* TODO: implement polygon */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_polygon::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
 /* TODO: implement polygon */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
@@ -6667,6 +7563,50 @@ void np02_polygon::rotate_no_loc_grid(const np02_xy& rot_ctr,  const double& rot
 AA_ALWAYS_ASSERT(false);
 }
 
+np02_shape *np02_polygon::copy_shape(np02_shp_alloc *shp_alloc) const{
+np02_polygon *p = copy_polygon(shp_alloc);
+return p;
+}
+
+np02_polygon *np02_polygon::copy_polygon(np02_shp_alloc *shp_alloc) const{
+np02_polygon *p = ( NULL == shp_alloc ) ?
+    new np02_polygon() : shp_alloc->alloc_polygon();
+p->init_from_polygon( this );
+return p;
+}
+
+void np02_polygon::init_from_polygon( const np02_polygon *master ){
+if( NULL != master ){
+    master->copy_shape_data_to(this);
+    m_vertices = master->m_vertices;
+    }
+}
+
+int np02_polygon::compare( const np02_shape *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    const np02_polygon *other_polygon =
+        dynamic_cast<const np02_polygon *>(other);
+    AUTO_ASSERT( NULL != other_polygon );
+    if( NULL == other_polygon ){
+        result = 1;
+        }
+    else{
+        result = compare_polygon(other_polygon);
+        }
+    }
+return result;
+}
+
+int np02_polygon::compare_polygon( const np02_polygon *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    if( m_vertices < other->m_vertices ){ result = -1; }
+    else if( other->m_vertices < m_vertices ){ result = 1; }
+    }
+return result;
+}
+
 uint64_t np02_polygon::hash( const uint64_t& h_in ) const{
 uint64_t h = np02_shape::hash( h_in );
 np02_xy_vec_citr v_itr = m_vertices.begin();
@@ -6713,6 +7653,12 @@ void np02_polygon::write_bmp_file(const np02_xy& xy_min,
 np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 }
 
+void np02_polygon::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file_edge(xy_min, pixel_num, color, bmp_file);
+}
+
 void np02_polygon::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
 /* TODO: implement polygon */
@@ -6744,6 +7690,13 @@ AA_ALWAYS_ASSERT(false);
 
 double np02_spline::get_distance_from_xy(const np02_xy& xy,
     np02_xy *near_xy) const{
+/* TODO: implement spline */
+AA_ALWAYS_ASSERT(false);
+return 0.0;
+}
+
+double np02_spline::get_bseg_dist_from_xy(const np02_xy& xy,
+    np02_xy *near_xy, double *d_from2 ) const{
 /* TODO: implement spline */
 AA_ALWAYS_ASSERT(false);
 return 0.0;
@@ -6812,6 +7765,51 @@ void np02_spline::rotate_no_loc_grid(const np02_xy& rot_ctr,  const double& rot_
 AA_ALWAYS_ASSERT(false);
 }
 
+np02_shape *np02_spline::copy_shape(np02_shp_alloc *shp_alloc) const{
+np02_spline *p = copy_spline(shp_alloc);
+return p;
+}
+
+np02_spline *np02_spline::copy_spline(np02_shp_alloc *shp_alloc) const{
+np02_spline *s = ( NULL == shp_alloc ) ?
+    new np02_spline() : shp_alloc->alloc_spline();
+s->init_from_spline( this );
+return s;
+}
+
+void np02_spline::init_from_spline( const np02_spline *master ){
+if( NULL != master ){
+    master->copy_shape_data_to(this);
+    /* TODO: implement spline */
+    AA_ALWAYS_ASSERT(false);
+    }
+}
+
+int np02_spline::compare( const np02_shape *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    const np02_spline *other_spline =
+        dynamic_cast<const np02_spline *>(other);
+    AUTO_ASSERT( NULL != other_spline );
+    if( NULL == other_spline ){
+        result = 1;
+        }
+    else{
+        result = compare_spline(other_spline);
+        }
+    }
+return result;
+}
+
+int np02_spline::compare_spline( const np02_spline *other ) const{
+int result = compare_shape_data(other);
+if( 0 == result ){
+    /* TODO: implement spline */
+    AA_ALWAYS_ASSERT(false);
+    }
+return result;
+}
+
 uint64_t np02_spline::hash( const uint64_t& h_in ) const{
 uint64_t h = np02_shape::hash( h_in );
 return h;
@@ -6854,6 +7852,12 @@ void np02_spline::write_bmp_file(const np02_xy& xy_min,
 np02_shape::write_bmp_file(xy_min, pixel_num, color, bmp_file);
 }
 
+void np02_spline::write_bmp_file_edge(const np02_xy& xy_min,
+    const double& pixel_num, const np02_bmp_color& color,
+    np02_bmp_file *bmp_file) const{
+np02_shape::write_bmp_file_edge(xy_min, pixel_num, color, bmp_file);
+}
+
 void np02_spline::write_dxf_file(const std::string& layer,
     const uint8_t& color, np02_dxf_file *dxf_file) const{
 /* TODO: implement spline */
@@ -6863,31 +7867,31 @@ AA_ALWAYS_ASSERT(false);
 
 void np02_loc_grid_dim::init(
     const np02_loc_grid_dim_init_params *init_params){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 if(NULL == init_params){
     AA_ALWAYS_ASSERT(false);
     reset();
     }
-else if((init_params->point_count == 0) ||
-    (init_params->loc_grid_density <= 0.0) ||
-    (init_params->max_loc_grid_sq_count == 0) ||
-    ((init_params->bb_min_xy).get_x() > (init_params->bb_max_xy).get_x()) ||
-    ((init_params->bb_min_xy).get_y() > (init_params->bb_max_xy).get_y())){
-    AA_ALWAYS_ASSERT(init_params->point_count > 0);
-    AA_ALWAYS_ASSERT(init_params->loc_grid_density > 0.0);
-    AA_ALWAYS_ASSERT(init_params->max_loc_grid_sq_count > 0);
-    AA_ALWAYS_ASSERT((init_params->bb_min_xy).get_x() <= 
-                     (init_params->bb_max_xy).get_x());
-    AA_ALWAYS_ASSERT((init_params->bb_min_xy).get_y() <= 
-                     (init_params->bb_max_xy).get_y());
+else if((init_params->m_shape_count == 0) ||
+    (init_params->m_loc_grid_density <= 0.0) ||
+    (init_params->m_max_loc_grid_sq_count == 0) ||
+    ((init_params->m_bb_min_xy).get_x() > (init_params->m_bb_max_xy).get_x()) ||
+    ((init_params->m_bb_min_xy).get_y() > (init_params->m_bb_max_xy).get_y())){
+    AA_ALWAYS_ASSERT(init_params->m_shape_count > 0);
+    AA_ALWAYS_ASSERT(init_params->m_loc_grid_density > 0.0);
+    AA_ALWAYS_ASSERT(init_params->m_max_loc_grid_sq_count > 0);
+    AA_ALWAYS_ASSERT((init_params->m_bb_min_xy).get_x() <=
+                     (init_params->m_bb_max_xy).get_x());
+    AA_ALWAYS_ASSERT((init_params->m_bb_min_xy).get_y() <=
+                     (init_params->m_bb_max_xy).get_y());
     reset();
     }
 else{
     /* bounding box */
-    const double& x_min = (init_params->bb_min_xy).get_x();
-    const double& x_max = (init_params->bb_max_xy).get_x();
-    const double& y_min = (init_params->bb_min_xy).get_y();
-    const double& y_max = (init_params->bb_max_xy).get_y();
+    const double& x_min = (init_params->m_bb_min_xy).get_x();
+    const double& x_max = (init_params->m_bb_max_xy).get_x();
+    const double& y_min = (init_params->m_bb_min_xy).get_y();
+    const double& y_max = (init_params->m_bb_max_xy).get_y();
     const double bb_dx = x_max-x_min;
     const double bb_dy = y_max-y_min;
     const double bb_area = bb_dx*bb_dy;
@@ -6897,10 +7901,10 @@ else{
 
     /* estimate number of grid squares */
     double grid_sq_count_float =
-       static_cast<double>(init_params->point_count)/
-       (init_params->loc_grid_density);
+       static_cast<double>(init_params->m_shape_count)/
+       (init_params->m_loc_grid_density);
     const double max_grid_sq_count_float =
-        static_cast<double>(init_params->max_loc_grid_sq_count);
+        static_cast<double>(init_params->m_max_loc_grid_sq_count);
     if(grid_sq_count_float > max_grid_sq_count_float){
         grid_sq_count_float = max_grid_sq_count_float; }
     if( grid_sq_count_float < 1.0 ){
@@ -6962,7 +7966,6 @@ else{
     }
 AUTO_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid_dim::get_bb_indices(
@@ -7025,17 +8028,17 @@ return os;
 void np02_loc_grid_dim::write_bmp_file(const np02_xy& xy_min,
     const double& pixel_num, const np02_bmp_color& color,
     np02_bmp_file *bmp_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 if(NULL != bmp_file){
-    uint16_t w_i, h_j;
-    int32_t i0, j0, i1, j1;
+    uint16_t w_i=0, h_j=0;
+    int32_t i0=0, j0=0, i1=0, j1=0;
     for(w_i = 0; w_i <= m_w; ++w_i ){
         i0 = static_cast<int32_t>( pixel_num *
             (m_x_min + (static_cast<double>(w_i)*m_sq_size) - xy_min.get_x()));
-        j0 = static_cast<int32_t>( pixel_num * (m_y_min - xy_min.get_x()) );
+        j0 = static_cast<int32_t>( pixel_num * (m_y_min - xy_min.get_y()) );
         j1 = static_cast<int32_t>( pixel_num *
-            (m_y_min + (static_cast<double>(m_h)*m_sq_size) - xy_min.get_x()));
+            (m_y_min + (static_cast<double>(m_h)*m_sq_size) - xy_min.get_y()));
         bmp_file->draw_line(i0, j0, i0, j1, color);
         }
     for(h_j = 0; h_j <= m_h; ++h_j ){
@@ -7043,15 +8046,29 @@ if(NULL != bmp_file){
         i1 = static_cast<int32_t>( pixel_num *
             (m_x_min + (static_cast<double>(m_w)*m_sq_size) - xy_min.get_x()));
         j0 = static_cast<int32_t>( pixel_num *
-            (m_y_min + (static_cast<double>(h_j)*m_sq_size) - xy_min.get_x()));
+            (m_y_min + (static_cast<double>(h_j)*m_sq_size) - xy_min.get_y()));
         bmp_file->draw_line(i0, j0, i1, j0, color);
         }
     }
-AA_DECR_CALL_DEPTH();
 }
 
 np02_shp_alloc *np02_loc_grid_node::get_shp_alloc() const{
 return (NULL == m_loc_grid) ? NULL : m_loc_grid->get_shp_alloc();
+}
+
+/* get distance from locator grid node center to shape 
+positive => node center is outside of shape
+negative => node center is inside shape
+*/
+double np02_loc_grid_node::get_node_ctr_d_from_shape() const{
+double d_from = 0.0;
+if( ( NULL != m_owner ) && ( NULL != m_loc_grid ) ){
+    const np02_loc_grid_dim& loc_grid_dim = m_loc_grid->get_loc_grid_dim();
+    const np02_xy node_ctr( loc_grid_dim.get_sq_ctr_x(m_i), 
+        loc_grid_dim.get_sq_ctr_y(m_j) );
+    d_from = m_owner->get_distance_from_xy( node_ctr );
+    }
+return d_from;
 }
 
 lyr_idx_type np02_loc_grid_node::get_lyr_idx() const{
@@ -7340,13 +8357,12 @@ np02_loc_grid::np02_loc_grid():
 {}
 
 np02_loc_grid::~np02_loc_grid(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 clear_loc_grid();
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::init_loc_grid( const np02_loc_grid_dim& d ){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
 size_t loc_grid_sz;
@@ -7361,11 +8377,10 @@ m_small_distance = ( sq_sz > 0.0 ) ?
     ( np02_shape::m_small_ratio * sq_sz ) : np02_shape::m_small_ratio;
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::insert_shape_in_loc_grid(np02_shape *shape){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_ALWAYS_ASSERT(NULL != shape);
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
@@ -7421,24 +8436,21 @@ if(NULL != shape){
         lg_node->set_s_next(lg_s_next);
         shape->set_head_loc_grid_node(lg_node);
         }
-    m_idx_pair_vec.clear();
+    m_idx_pair_vec.resize(0);
     AUTO_ASSERT(NULL != shape->get_head_loc_grid_node());
     AUTO_ASSERT(0 == shape->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
         AA_ERR_BUF_POS_PTR() ));
     }
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::remove_shape_from_loc_grid(np02_shape *shape){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
 AA_ALWAYS_ASSERT(NULL != shape);
-AUTO_ASSERT(0 == shape->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
-    AA_ERR_BUF_POS_PTR() ));
 AUTO_ASSERT(this == shape->get_loc_grid());
 np02_loc_grid_node *lg_node = shape->get_head_loc_grid_node();
 while(NULL != lg_node){
@@ -7466,16 +8478,13 @@ while(NULL != lg_node){
     lg_node=lg_s_next;
     }
 shape->set_head_loc_grid_node(NULL);
-AUTO_ASSERT(0 == shape->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
-    AA_ERR_BUF_POS_PTR() ));
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::get_shapes_near_shape(const np02_shape *s,
     np02_shape_vec *shapes) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
@@ -7535,16 +8544,15 @@ if((NULL != s) && (NULL != shapes) && (NULL != lg_node)){
         }
 
     /* restore utility vector */
-    idx_shape_vec->clear();
+    idx_shape_vec->resize(0);
     }
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::get_shapes_in_bb(const np02_xy& xy_min,
     const np02_xy& xy_max, np02_shape_vec *shapes ) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
@@ -7588,17 +8596,120 @@ shp_type_idx_shape_vec_itr unique_end_itr =
 
 /* copy shapes to output vector */
 shp_type_idx_shape_vec_itr unique_itr = idx_shape_vec->begin();
+const size_t output_shape_count = unique_end_itr - unique_itr;
+const size_t total_shapes_size = shapes->size() + output_shape_count;
+shapes->reserve(total_shapes_size);
 for(; unique_itr != unique_end_itr; ++unique_itr){
     shape = unique_itr->second;
     shapes->push_back(shape);
     }
+AUTO_ASSERT( shapes->size() == total_shapes_size );
 
 /* restore utility vector */
-idx_shape_vec->clear();
+idx_shape_vec->resize(0);
 
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
+}
+
+void np02_loc_grid::get_node_stats(node_stats* s) const{
+if (NULL != s) {
+    s->reset();
+    AUTO_ASSERT(0 == s->m_node_count);
+    s->m_grid_sq_count = m_loc_grid_vec.size();
+    if(s->m_grid_sq_count > 0){
+        typedef std::map<const np02_shape*, size_t> shape_szt_map;
+        typedef shape_szt_map::const_iterator shape_szt_map_citr;
+        typedef shape_szt_map::iterator shape_szt_map_itr;
+        shape_szt_map shape_node_count_map;
+        double ncigs_sum = 0.0;
+        double ncigs_sq_sum = 0.0;
+        loc_grid_node_vec_citr lgv_itr = m_loc_grid_vec.begin();
+        for( ; m_loc_grid_vec.end() != lgv_itr; ++lgv_itr ){
+            const np02_loc_grid_node *node = *lgv_itr;
+            size_t node_count_in_grid_square = 0;
+            static const size_t max_allowed_node_count_in_grid_square = 0xFFFFFF;
+            while( ( NULL != node ) && (node_count_in_grid_square 
+                < max_allowed_node_count_in_grid_square ) ){
+                ++node_count_in_grid_square;
+                ++(s->m_node_count);
+                const np02_shape* shape = node->get_owner();
+                AUTO_ASSERT(NULL != shape);
+                shape_szt_map_itr map_itr=shape_node_count_map.lower_bound(shape);
+                if( (shape_node_count_map.end() == map_itr ) || 
+                    ( map_itr->first != shape ) ){
+                    shape_node_count_map.insert(map_itr,
+                        shape_szt_map::value_type(shape, 1));
+                    }
+                else {
+                    ++(map_itr->second);
+                    }
+                node = node->get_next();
+                }
+            AUTO_ASSERT(node_count_in_grid_square
+                < max_allowed_node_count_in_grid_square);
+
+            ncigs_sum += static_cast<double>(node_count_in_grid_square);
+            ncigs_sq_sum += static_cast<double>(node_count_in_grid_square * 
+                                                node_count_in_grid_square);
+
+            if (node_count_in_grid_square < s->m_nodes_in_grid_sq_min) {
+                s->m_nodes_in_grid_sq_min = node_count_in_grid_square;
+                }
+            if (node_count_in_grid_square > s->m_nodes_in_grid_sq_max) {
+                s->m_nodes_in_grid_sq_max = node_count_in_grid_square;
+                }
+            }
+
+        s->m_nodes_in_grid_sq_ave = ncigs_sum / 
+            static_cast<double>(s->m_grid_sq_count);
+        if (s->m_nodes_in_grid_sq_min == s->m_nodes_in_grid_sq_max) {
+            AUTO_ASSERT(0.0 == s->m_nodes_in_grid_sq_stdev);
+            }
+        else {
+            const double ncigs_var =
+                (ncigs_sq_sum / static_cast<double>(s->m_grid_sq_count)) -
+                ((s->m_nodes_in_grid_sq_ave) * (s->m_nodes_in_grid_sq_ave));
+            s->m_nodes_in_grid_sq_stdev = (ncigs_var>0.0) ? sqrt(ncigs_var):0.0;
+            }
+
+        s->m_shape_count = shape_node_count_map.size();
+        s->m_shapes_per_grid_sq = static_cast<double>(s->m_shape_count)/
+            static_cast<double>(s->m_grid_sq_count);
+
+        if(s->m_shape_count > 0 ){
+            /* sort counts/shape vector for consistent result */
+            std::vector<size_t> node_cnt_for_shape_vec;
+            node_cnt_for_shape_vec.reserve(s->m_shape_count);
+            shape_szt_map_citr mp_itr = shape_node_count_map.begin();
+            for(; shape_node_count_map.end() != mp_itr; ++mp_itr){
+                node_cnt_for_shape_vec.push_back(mp_itr->second);
+                }
+            std::sort(node_cnt_for_shape_vec.begin(), node_cnt_for_shape_vec.end());
+            s->m_nodes_for_shape_min = node_cnt_for_shape_vec.front();
+            s->m_nodes_for_shape_max = node_cnt_for_shape_vec.back();
+            double ncfs_sum = 0.0;
+            double ncfs_sq_sum = 0.0;
+            std::vector<size_t>::const_iterator ncv_itr =
+                node_cnt_for_shape_vec.begin();
+            for(; node_cnt_for_shape_vec.end() != ncv_itr; ++ncv_itr ){
+                const size_t& c = *ncv_itr;
+                ncfs_sum += static_cast<double>(c);
+                ncfs_sq_sum += static_cast<double>(c*c);
+                }
+            s->m_nodes_for_shape_ave = ncfs_sum/static_cast<double>(s->m_shape_count);
+            if(s->m_nodes_for_shape_min == s->m_nodes_for_shape_max){
+                AUTO_ASSERT(0.0 == s->m_nodes_for_shape_stdev);
+                }
+            else{
+                const double ncfs_var = 
+                    (ncfs_sq_sum / static_cast<double>(s->m_shape_count)) -
+                    ((s->m_nodes_for_shape_ave)*(s->m_nodes_for_shape_ave));
+                s->m_nodes_for_shape_stdev = (ncfs_var > 0.0) ? sqrt(ncfs_var) : 0.0;
+                }
+            }        
+        }
+    }
 }
 
 uint64_t np02_loc_grid::hash( const uint64_t& h_in ) const{
@@ -7729,6 +8840,30 @@ for(gn_vec_idx = 0; gn_vec_idx<m_loc_grid_vec.size(); ++gn_vec_idx){
 return err_cnt;
 }
 
+/*
+threshold_a ?= extra_distance + grid_sq_sz
+for each node
+   d = np02_loc_grid_node::get_node_ctr_d_from_shape()
+    
+   check that d < threshold_a
+
+threshold_b ?= extra_distance + 0.75*grid_sq_sz
+for each shape
+   get bounding box + 2 grid sq sz on all sides
+   check distance from each grid node center
+   if distance < threshold_b
+       check that node exists for shape in that square
+
+*/
+int np02_loc_grid::verify_shapes_have_correct_nodes( char *err_msg,
+    const size_t err_msg_capacity, size_t *err_msg_pos ) const{
+int err_cnt = 0;
+
+
+
+return err_cnt;
+}
+
 std::ostream& np02_loc_grid::ostream_output(std::ostream& os) const{
 os << "<loc_grid=" << std::hex << this << std::dec << ">\n";
 os << "<alloc_idx>" << m_alloc_idx << "</alloc_idx>\n";
@@ -7796,11 +8931,10 @@ return os;
 void np02_loc_grid::write_bmp_file(const np02_xy& xy_min,
     const double& pixel_num, const np02_bmp_color& color,
     np02_bmp_file *bmp_file) const{
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 write_bmp_file_grid_lines(xy_min, pixel_num, color, bmp_file);
 write_bmp_file_grid_info(xy_min, pixel_num, color, bmp_file);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::write_bmp_file_grid_lines(const np02_xy& xy_min,
@@ -7837,7 +8971,7 @@ if(NULL != bmp_file){
             xy_min.get_x())) + (hh/2.0);
         jj0 = (pixel_num * (m_loc_grid_dim.get_y_min() +
             (static_cast<double>(j)* m_loc_grid_dim.get_sq_size()) -
-            xy_min.get_x())) + (hh/2.0);
+            xy_min.get_y())) + (hh/2.0);
 
         bmp_file->draw_text(msg_buf, ii0, jj0, hh, 0.0, color);
 
@@ -7847,24 +8981,24 @@ if(NULL != bmp_file){
 
     /* extra search distance bar */
     ii0 = (pixel_num * (m_loc_grid_dim.get_x_min() -  xy_min.get_x()));
-    jj0 = (pixel_num * (m_loc_grid_dim.get_y_min() - xy_min.get_x())) - 
+    jj0 = (pixel_num * (m_loc_grid_dim.get_y_min() - xy_min.get_y())) - 
         (7.0*hh/8.0);
     ii1 = (pixel_num * (m_loc_grid_dim.get_x_min() + m_extra_search_d - 
         xy_min.get_x()));
-    jj1 = (pixel_num * (m_loc_grid_dim.get_y_min() - xy_min.get_x()))-(hh/8.0);
+    jj1 = (pixel_num * (m_loc_grid_dim.get_y_min() - xy_min.get_y()))-(hh/8.0);
     bmp_file->draw_box( static_cast<int32_t>(ii0), static_cast<int32_t>(jj0),
         static_cast<int32_t>(ii1), static_cast<int32_t>(jj1), color);
 
     ii0 = (pixel_num * (m_loc_grid_dim.get_x_min() + m_extra_search_d - 
         xy_min.get_x()));
-    jj0 = (pixel_num * (m_loc_grid_dim.get_y_min() - xy_min.get_x())) - hh;
+    jj0 = (pixel_num * (m_loc_grid_dim.get_y_min() - xy_min.get_y())) - hh;
     bmp_file->draw_text("extra_search_d", ii0, jj0, hh, 0.0, color);
     }
 }
 
 
 np02_loc_grid_node *np02_loc_grid::alloc_loc_grid_node(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
@@ -7886,12 +9020,11 @@ if(NULL != n){
     }
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 return n;
 }
 
 void np02_loc_grid::free_loc_grid_node(np02_loc_grid_node *n){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT(NULL != n);
 AUTO_ASSERT(this == n->get_loc_grid());
@@ -7915,11 +9048,10 @@ else{
     }
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 }
 
 void np02_loc_grid::clear_loc_grid(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
 loc_grid_node_vec_citr lg_itr = m_loc_grid_vec.begin();
@@ -7941,7 +9073,6 @@ for(; lg_itr != m_loc_grid_vec.end(); ++lg_itr){
 m_loc_grid_vec.clear();
 AA_XDBG_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()), CF01_AA_DEBUG_LEVEL_3);
-AA_DECR_CALL_DEPTH();
 }
 
 const size_t np02_shp_alloc::m_max_free_chain_sz = 0x7FFFFFFF;
@@ -7972,10 +9103,9 @@ np02_shp_alloc::np02_shp_alloc():
     m_alloc_region_vec(),
     m_region_free_chain(NULL)
 {
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 AUTO_ASSERT(0 == verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR()));
-AA_DECR_CALL_DEPTH();
 }
 
 np02_shp_alloc::~np02_shp_alloc(){
@@ -7984,7 +9114,7 @@ alloc_delete_all();
 
 
 np02_shape_handle *np02_shp_alloc::alloc_shape_handle(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_shape_handle *shape_handle = NULL;
 if(NULL == m_shape_handle_free_chain){
@@ -8000,12 +9130,11 @@ else{
     }
 AUTO_ASSERT(0 == shape_handle->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return shape_handle;
 }
 
 void np02_shp_alloc::free_shape_handle(np02_shape_handle *shape_handle){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != shape_handle );
 AA_ALWAYS_ASSERT( this == shape_handle->get_shp_alloc() );
@@ -8014,13 +9143,12 @@ if(NULL != m_shape_handle_free_chain){
     shape_handle->set_free_chain_next(m_shape_handle_free_chain);
     }
 m_shape_handle_free_chain = shape_handle;
-shape_handle->set_owner_idx(NP02_SHP_HNDL_OWNER_INVALID_IDX);
-AA_DECR_CALL_DEPTH();
+shape_handle->set_aux_data(np02_shape_aux_data::invalid_aux_data());
 }
 
 void np02_shp_alloc::free_shape(np02_shape *shape)
 {
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 if(NULL != shape){
     np02_circle *circle=NULL;
@@ -8049,11 +9177,10 @@ if(NULL != shape){
         }
     else{ AA_ALWAYS_ASSERT(false); }
     }
-AA_DECR_CALL_DEPTH();
 }
 
 np02_circle *np02_shp_alloc::alloc_circle(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_circle *circle = NULL;
 if(NULL == m_circle_free_chain){
@@ -8069,12 +9196,11 @@ else{
     }
 AUTO_ASSERT(0 == circle->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return circle;
 }
 
 void np02_shp_alloc::free_circle(np02_circle *circle){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != circle );
 AA_ALWAYS_ASSERT( this == circle->get_shp_alloc() );
@@ -8087,12 +9213,10 @@ m_circle_free_chain = circle;
 /* TODO: decide whether to keep the assert or keep the assignment*/
 AA_ALWAYS_ASSERT( NULL == circle->get_shape_owner() );
 circle->set_shape_owner(NULL);
-
-AA_DECR_CALL_DEPTH();
 }
 
 np02_arc *np02_shp_alloc::alloc_arc(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_arc *arc = NULL;
 if(NULL == m_arc_free_chain){
@@ -8109,12 +9233,11 @@ else{
     }
 AUTO_ASSERT(0 == arc->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return arc;
 }
 
 void np02_shp_alloc::free_arc(np02_arc *arc){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != arc );
 AA_ALWAYS_ASSERT( this == arc->get_shp_alloc() );
@@ -8127,12 +9250,10 @@ m_arc_free_chain = arc;
 /* TODO: decide whether to keep the assert or keep the assignment*/
 AA_ALWAYS_ASSERT( NULL == arc->get_shape_owner() );
 arc->set_shape_owner(NULL);
-
-AA_DECR_CALL_DEPTH();
 }
 
 np02_line_seg *np02_shp_alloc::alloc_line_seg(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_line_seg *line_seg = NULL;
 if(NULL == m_line_seg_free_chain){
@@ -8148,12 +9269,11 @@ else{
     }
 AUTO_ASSERT(0 == line_seg->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return line_seg;
 }
 
 void np02_shp_alloc::free_line_seg(np02_line_seg *line_seg){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != line_seg );
 AA_ALWAYS_ASSERT( this == line_seg->get_shp_alloc() );
@@ -8166,12 +9286,10 @@ m_line_seg_free_chain = line_seg;
 /* TODO: decide whether to keep the assert or keep the assignment*/
 AA_ALWAYS_ASSERT( NULL == line_seg->get_shape_owner() );
 line_seg->set_shape_owner(NULL);
-
-AA_DECR_CALL_DEPTH();
 }
 
 np02_rect *np02_shp_alloc::alloc_rect(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_rect *rect = NULL;
 if(NULL == m_rect_free_chain){
@@ -8187,12 +9305,11 @@ else{
     }
 AUTO_ASSERT(0 == rect->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return rect;
 }
 
 void np02_shp_alloc::free_rect(np02_rect *rect){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != rect );
 AA_ALWAYS_ASSERT( this == rect->get_shp_alloc() );
@@ -8205,12 +9322,10 @@ m_rect_free_chain = rect;
 /* TODO: decide whether to keep the assert or keep the assignment*/
 AA_ALWAYS_ASSERT( NULL == rect->get_shape_owner() );
 rect->set_shape_owner(NULL);
-
-AA_DECR_CALL_DEPTH();
 }
 
 np02_polygon *np02_shp_alloc::alloc_polygon(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_polygon *polygon = NULL;
 if(NULL == m_polygon_free_chain){
@@ -8226,12 +9341,11 @@ else{
     }
 AUTO_ASSERT(0 == polygon->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return polygon;
 }
 
 void np02_shp_alloc::free_polygon(np02_polygon *polygon){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != polygon );
 AA_ALWAYS_ASSERT( this == polygon->get_shp_alloc() );
@@ -8244,12 +9358,10 @@ m_polygon_free_chain = polygon;
 /* TODO: decide whether to keep the assert or keep the assignment*/
 AA_ALWAYS_ASSERT( NULL == polygon->get_shape_owner() );
 polygon->set_shape_owner(NULL);
-
-AA_DECR_CALL_DEPTH();
 }
 
 np02_spline *np02_shp_alloc::alloc_spline(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_spline *spline = NULL;
 if(NULL == m_spline_free_chain){
@@ -8265,12 +9377,11 @@ else{
     }
 AUTO_ASSERT(0 == spline->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return spline;
 }
 
 void np02_shp_alloc::free_spline(np02_spline *spline){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != spline );
 AA_ALWAYS_ASSERT( this == spline->get_shp_alloc() );
@@ -8283,8 +9394,6 @@ m_spline_free_chain = spline;
 /* TODO: decide whether to keep the assert or keep the assignment*/
 AA_ALWAYS_ASSERT( NULL == spline->get_shape_owner() );
 spline->set_shape_owner(NULL);
- 
-AA_DECR_CALL_DEPTH();
 }
 
 size_t np02_shp_alloc::alloc_get_total_shape_count() const{ 
@@ -8299,7 +9408,7 @@ return total_shape_count;
 }
 
 np02_loc_grid_node *np02_shp_alloc::alloc_loc_grid_node(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_loc_grid_node *node = NULL;
 if(NULL == m_loc_grid_node_free_chain){
@@ -8314,12 +9423,11 @@ else{
     }
 AUTO_ASSERT(0 == node->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return node;
 }
 
 void np02_shp_alloc::free_loc_grid_node(np02_loc_grid_node *loc_grid_node){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 /* TODO: call node->destruct() (might be named differently.) to free resources */
 if(NULL != m_loc_grid_node_free_chain){
@@ -8327,11 +9435,10 @@ if(NULL != m_loc_grid_node_free_chain){
     }
 m_loc_grid_node_free_chain = loc_grid_node;
 loc_grid_node->set_owner(NULL);
-AA_DECR_CALL_DEPTH();
 }
 
 np02_loc_grid *np02_shp_alloc::alloc_loc_grid(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_loc_grid *loc_grid = new np02_loc_grid();
 loc_grid->set_shp_alloc(this);
@@ -8339,12 +9446,11 @@ loc_grid->set_alloc_idx(m_alloc_loc_grid_vec.size());
 m_alloc_loc_grid_vec.push_back(loc_grid);
 AUTO_ASSERT(0 == loc_grid->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return loc_grid;
 }
 
 void np02_shp_alloc::free_loc_grid(np02_loc_grid *loc_grid){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 if(NULL != loc_grid){
     const size_t& alloc_idx = loc_grid->get_alloc_idx();
     if(alloc_idx >= m_alloc_loc_grid_vec.size()){
@@ -8356,11 +9462,10 @@ if(NULL != loc_grid){
         }
     delete loc_grid;
     }
-AA_DECR_CALL_DEPTH();
 }
 
 np02_boundary_seg *np02_shp_alloc::alloc_boundary_seg(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_boundary_seg *boundary_seg = NULL;
 if(NULL == m_boundary_seg_free_chain){
@@ -8377,12 +9482,11 @@ else{
     }
 AUTO_ASSERT(0 == boundary_seg->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return boundary_seg;
 }
 
 void np02_shp_alloc::free_boundary_seg(np02_boundary_seg *boundary_seg){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != boundary_seg );
 AA_ALWAYS_ASSERT( this == boundary_seg->get_shp_alloc() );
@@ -8392,11 +9496,10 @@ if(NULL != m_boundary_seg_free_chain){
     }
 m_boundary_seg_free_chain = boundary_seg;
 boundary_seg->set_owner(NULL);
-AA_DECR_CALL_DEPTH();
 }
 
 np02_boundary *np02_shp_alloc::alloc_boundary(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_boundary *boundary = NULL;
 if(NULL == m_boundary_free_chain){
@@ -8413,12 +9516,11 @@ else{
     }
 AUTO_ASSERT(0 == boundary->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return boundary;
 }
 
 void np02_shp_alloc::free_boundary(np02_boundary *boundary){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != boundary );
 AA_ALWAYS_ASSERT( this == boundary->get_shp_alloc() );
@@ -8428,11 +9530,10 @@ if(NULL != m_boundary_free_chain){
     }
 m_boundary_free_chain = boundary;
 boundary->set_owner(NULL);
-AA_DECR_CALL_DEPTH();
 }
 
 np02_region *np02_shp_alloc::alloc_region(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( this->hash() );
 np02_region *region = NULL;
 if(NULL == m_region_free_chain){
@@ -8449,12 +9550,11 @@ else{
     }
 AUTO_ASSERT(0 == region->verify_data(AA_ERR_BUF(),AA_ERR_BUF_CAPACITY(),
     AA_ERR_BUF_POS_PTR() ));
-AA_DECR_CALL_DEPTH();
 return region;
 }
 
 void np02_shp_alloc::free_region(np02_region *region){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 CF01_HASH_CONSISTENCY_CHECK( static_cast<cf01_uint64>( 0 ) ); /* infinite loop debug */
 AA_ALWAYS_ASSERT( NULL != region );
 AA_ALWAYS_ASSERT( this == region->get_shp_alloc() );
@@ -8464,7 +9564,6 @@ if(NULL != m_region_free_chain){
     }
 m_region_free_chain = region;
 region->set_owner(NULL);
-AA_DECR_CALL_DEPTH();
 }
 
 uint64_t np02_shp_alloc::hash( const uint64_t& h_in ) const{
@@ -8842,7 +9941,7 @@ return os;
 
 /* destructor implementation.  Delete all objects. */
 void np02_shp_alloc::alloc_delete_all(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 while (NULL != m_shape_handle_free_chain) {
     np02_shape_handle *shape_handle = m_shape_handle_free_chain;
     m_shape_handle_free_chain = m_shape_handle_free_chain->get_free_chain_next();
@@ -8940,8 +10039,6 @@ while (NULL != m_region_free_chain) {
     delete region;
     }
 m_alloc_region_vec.clear();
-
-AA_DECR_CALL_DEPTH();
 }
 
 int np02_shp_alloc::verify_data_alloc_shape_handle( char *err_msg,
@@ -9579,11 +10676,11 @@ return err_cnt;
 
 int np02_shape_test::run_shape_test(const int& shape_test_number,const int&
     shape_test_iteration_count, const int& shape_test_rand_seed){
-np02_shape_test t;
-t.set_shape_test_number( shape_test_number );
-t.set_shape_test_iteration_count(shape_test_iteration_count);
-t.set_shape_test_rand_seed( shape_test_rand_seed );
-const int error_code = t.execute();
+std::unique_ptr<np02_shape_test> t(new np02_shape_test());
+t->set_shape_test_number( shape_test_number );
+t->set_shape_test_iteration_count(shape_test_iteration_count);
+t->set_shape_test_rand_seed( shape_test_rand_seed );
+const int error_code = t->execute();
 return error_code;
 }
 
@@ -9637,7 +10734,7 @@ return error_code;
 void np02_shape_test::make_rand_shapes( np02_shp_alloc *shp_alloc,
     const int& ww, const int& hh,  const double& basic_length,
     np02_shape_vec *shapes, std::vector<np02_bmp_color> *colors ){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 for(int i = 0; i < ww; ++i){
     const double x_ctr = (static_cast<double>(i)+0.5) * basic_length;
     for(int j = 0; j < hh; ++j){
@@ -9652,7 +10749,6 @@ for(int i = 0; i < ww; ++i){
             ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) );
         }
     }
-AA_DECR_CALL_DEPTH();
 }
 
 
@@ -9807,6 +10903,7 @@ switch(get_rand_int()%13){
             arc_init3pt_params.m_pc.set_y(shp_ctr.get_y()+y1);
             arc_init3pt_params.m_width = w;
             arc_init3pt_params.m_max_radius = 1000000.0 * basic_length;
+            AA_ALWAYS_ASSERT(arc_init3pt_params.m_max_radius > 0.0);
             np02_arc::init_params arc_init_params;
             np02_arc::init3pt_aux_params arc_init3pt_aux_params;
             np02_arc::init3pt_to_init_params( arc_init3pt_params,
@@ -9831,6 +10928,292 @@ switch(get_rand_int()%13){
 if(NULL != color){ *color = clr; }
 assert( NULL != shape );
 return shape;
+}
+
+
+void np02_shape_test::make_rand_regions( np02_shp_alloc *shp_alloc, const int& ww,
+    const int& hh,  const double& basic_length,
+    np02_region_vec *regions, std::vector<np02_bmp_color> *colors ){
+AA_CALL_DEPTH_BLOCK();
+for(int i = 0; i < ww; ++i){
+    const double x_ctr = (static_cast<double>(i)+0.5) * basic_length;
+    for(int j = 0; j < hh; ++j){
+        /* create random shape & color */
+        const double y_ctr = (static_cast<double>(j)+0.5) * basic_length;
+        const np02_xy rgn_ctr(x_ctr, y_ctr);
+        const int rgn_gen_method = get_rand_int() % 8;
+        switch( rgn_gen_method ){
+            case 0:
+            case 1:
+                {
+                advance_rand();
+                const double flag_sz = basic_length * get_rand_dbl(0.5,0.9);
+                np02_region *red_rgn = ( NULL == shp_alloc ) ? new np02_region() :
+                    shp_alloc->alloc_region();
+                np02_region *white_rgn = ( NULL == shp_alloc ) ? new np02_region() :
+                    shp_alloc->alloc_region();
+                np02_region *blue_rgn = ( NULL == shp_alloc ) ? new np02_region() :
+                    shp_alloc->alloc_region();
+                const np02_xy bb_xy_min(x_ctr - (flag_sz/2.0), 
+                                        y_ctr - (flag_sz/2.0));
+                const np02_xy bb_xy_max(x_ctr + (flag_sz/2.0), 
+                                        y_ctr + (flag_sz/2.0));
+                np02_region::init_usa_flag( bb_xy_min, bb_xy_max, red_rgn,
+                    white_rgn, blue_rgn );
+                advance_rand();
+                const double rot_deg = 
+                    30.0 * static_cast<double>((get_rand_int() % 25) - 12);
+                red_rgn->rotate( rgn_ctr, rot_deg);
+                white_rgn->rotate( rgn_ctr, rot_deg);
+                blue_rgn->rotate( rgn_ctr, rot_deg);                
+                regions->push_back(red_rgn);
+                colors->push_back(np02_bmp_color::red());
+                regions->push_back(white_rgn);
+                colors->push_back(np02_bmp_color::white());
+                regions->push_back(blue_rgn);
+                colors->push_back(np02_bmp_color::blue());
+                }
+                break;
+            default:{  
+                np02_bmp_color color(0,0,0,false);
+                np02_region *region = make_rand_region( shp_alloc, rgn_ctr, basic_length,
+                    &color );
+                regions->push_back(region);
+                colors->push_back(color);
+                }
+                break;
+            }
+
+        CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( np02_region_vec_hash( *regions ),
+            ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) );
+        }
+    }
+}
+
+np02_region *np02_shape_test::make_rand_region( 
+    np02_shp_alloc *shp_alloc, const np02_xy& rgn_ctr,
+    const double& basic_length, np02_bmp_color *color ){
+AA_CALL_DEPTH_BLOCK();
+np02_region *region = NULL;
+advance_rand();
+const int rgn_gen_method = get_rand_int() % 3;
+switch( rgn_gen_method ){
+    case 1:
+        region = make_rand_region_polygon_w_holes( shp_alloc, rgn_ctr,
+            basic_length, color );
+        break;
+    case 2:
+        region = make_rand_region_polygon_w_holes( shp_alloc, rgn_ctr,
+            basic_length, color );
+        break;
+    case 3:
+    default:
+        region = make_rand_region_rect_w_circ_holes( shp_alloc, rgn_ctr,
+            basic_length, color );
+        break;
+    }
+return region;
+}
+
+np02_region * np02_shape_test::make_rand_region_polygon_w_holes(
+    np02_shp_alloc *shp_alloc, const np02_xy& rgn_ctr,
+    const double& basic_length, np02_bmp_color *color ){
+AA_CALL_DEPTH_BLOCK();
+np02_region *region = (NULL == shp_alloc) ? 
+    new np02_region() : shp_alloc->alloc_region();
+
+/* polygon */
+np02_boundary *poly_boundary = (NULL == shp_alloc) ? 
+    new np02_boundary() : shp_alloc->alloc_boundary();
+advance_rand();
+const int side_count = 3 + ( get_rand_int() % 7 );
+const double poly_radius = 0.375 * basic_length;
+np02_xy p0(0.0,0.0);
+np02_xy p1(rgn_ctr.get_x()+poly_radius,rgn_ctr.get_y());
+const double circle_radius = (side_count < 5 ) ?
+    poly_radius/static_cast<double>(side_count * 2) :
+    poly_radius/static_cast<double>(side_count);
+for( int s = 0; s < side_count; ++s ){
+    const double theta = (2.0 * 3.1415926535897932384626433832795) *
+        (static_cast<double>( ( s + 1 ) % side_count ) / side_count);
+
+    /* polygon edge */
+    const double cos_theta = cos(theta);
+    const double sin_theta = sin(theta);
+    const double arm_x = poly_radius * cos_theta;
+    const double arm_y = poly_radius * sin_theta;
+    p0 = p1;
+    p1.set_x(rgn_ctr.get_x() + arm_x);
+    p1.set_y(rgn_ctr.get_y() + arm_y);
+
+    np02_line_seg *poly_edge = (NULL == shp_alloc) ? 
+        new np02_line_seg() : shp_alloc->alloc_line_seg();
+    poly_edge->init(p0, p1, 0.0);
+    AUTO_ASSERT( NP02_SHAPE_INVERT_STATUS_NORMAL == 
+        poly_edge->get_shape_invert_status() );
+
+    np02_boundary_seg *poly_edge_bdry_seg = (NULL == shp_alloc) ? 
+        new np02_boundary_seg() : shp_alloc->alloc_boundary_seg();
+    poly_edge_bdry_seg->set_shape(poly_edge);
+
+    poly_boundary->add_boundary_seg_loop(poly_edge_bdry_seg);
+
+    advance_rand();
+    const int hole_selector = ( get_rand_int() % 2 );
+    if( 0 == hole_selector ){
+        /* circle */
+        const np02_xy circle_ctr(rgn_ctr.get_x() + (arm_x/2.0), 
+                                 rgn_ctr.get_y() + (arm_y/2.0));
+        np02_circle *circle = (NULL == shp_alloc) ? 
+            new np02_circle() : shp_alloc->alloc_circle();
+        circle->init(circle_ctr, circle_radius);
+        circle->set_shape_invert_status( NP02_SHAPE_INVERT_STATUS_INVERTED );
+    
+        np02_boundary_seg *circle_bdry_seg = (NULL == shp_alloc) ? 
+            new np02_boundary_seg() : shp_alloc->alloc_boundary_seg();
+        circle_bdry_seg->set_shape(circle);
+    
+        np02_boundary *circle_boundary = (NULL == shp_alloc) ? 
+            new np02_boundary() : shp_alloc->alloc_boundary();
+        circle_boundary->add_boundary_seg_open(circle_bdry_seg);
+    
+        region->add_boundary(circle_boundary);
+        }
+    else{
+        /* star */
+        advance_rand();
+        const int n = 3 + ( get_rand_int() % 7 );
+
+        const np02_xy star_ctr(rgn_ctr.get_x() + (arm_x/2.0), 
+                               rgn_ctr.get_y() + (arm_y/2.0));
+
+        np02_boundary *star_boundary = (NULL == shp_alloc) ? 
+            new np02_boundary() : shp_alloc->alloc_boundary();
+        AUTO_ASSERT(star_boundary->get_shp_alloc() == shp_alloc);
+        star_boundary->init_star(star_ctr,circle_radius,
+            static_cast<size_t>(n));
+        star_boundary->invert();    
+        region->add_boundary(star_boundary);
+        }
+    }
+region->add_boundary(poly_boundary);
+
+/* create random color */
+advance_rand();
+np02_bmp_color clr(0,0,0,false);
+switch(get_rand_int()%6){
+    default:
+    case 0: clr=np02_bmp_color::bl_fuchsia(); break;
+    case 1: clr=np02_bmp_color::bl_yellow(); break;
+    case 2: clr=np02_bmp_color::bl_purple(); break;
+    case 3: clr=np02_bmp_color::bl_blue(); break;
+    case 4: clr=np02_bmp_color::bl_maroon(); break;
+    case 5: clr=np02_bmp_color::bl_white(); break;
+    }
+if( NULL != color ){
+    *color = clr;
+    }
+
+return region;
+}
+
+np02_region *np02_shape_test::make_rand_region_rect_w_circ_holes(
+    np02_shp_alloc *shp_alloc, const np02_xy& rgn_ctr,
+    const double& basic_length, np02_bmp_color *color ){
+AA_CALL_DEPTH_BLOCK();
+np02_region *region = (NULL == shp_alloc) ? 
+    new np02_region() : shp_alloc->alloc_region();
+
+advance_rand();
+const int ww = 2 + ( get_rand_int() % 5 );
+advance_rand();
+const int hh = 2 + ( get_rand_int() % 5 );
+
+const double unit_len = ( basic_length * 2.0 ) / static_cast<double>(ww + hh);
+
+/* rectangle */
+np02_boundary *rect_boundary = (NULL == shp_alloc) ? 
+    new np02_boundary() : shp_alloc->alloc_boundary();
+const double w = static_cast<double>(ww) * unit_len;
+const double h = static_cast<double>(hh) * unit_len;
+const np02_xy rect_min_xy(rgn_ctr.get_x() - (w/2), rgn_ctr.get_y() - (h/2));
+np02_xy p0 = rect_min_xy;
+np02_xy p1(rect_min_xy.get_x() + w, rect_min_xy.get_y());
+for( int s = 0; s < 4; ++s ){
+    np02_line_seg *rect_edge = (NULL == shp_alloc) ? 
+        new np02_line_seg() : shp_alloc->alloc_line_seg();
+    rect_edge->init(p0, p1, 0.0);
+    AUTO_ASSERT( NP02_SHAPE_INVERT_STATUS_NORMAL == 
+        rect_edge->get_shape_invert_status() );
+
+    np02_boundary_seg *rect_edge_bdry_seg = (NULL == shp_alloc) ? 
+        new np02_boundary_seg() : shp_alloc->alloc_boundary_seg();
+    rect_edge_bdry_seg->set_shape(rect_edge);
+
+    rect_boundary->add_boundary_seg_loop(rect_edge_bdry_seg);
+
+    /* advance */
+    p0 = p1;
+    switch ( s ) {
+        case 0:
+            p1.set_xy(rect_min_xy.get_x() + w, rect_min_xy.get_y() + h);
+            break;
+        case 1:
+            p1.set_xy(rect_min_xy.get_x(), rect_min_xy.get_y() + h);
+            break;
+        case 2:
+            p1 = rect_min_xy;
+            break;
+        case 3:
+        default:
+            break;
+        }
+    }
+region->add_boundary(rect_boundary);
+
+/* circles */
+const double radius = unit_len * 0.25;
+for(int i = 0; i < ww; ++i){
+    const double x_circle_ctr = rect_min_xy.get_x() + 
+        ( (static_cast<double>(i)+0.5) * unit_len );
+    for(int j = 0; j < hh; ++j){
+        const double y_circle_ctr = rect_min_xy.get_y() +
+            ( (static_cast<double>(j)+0.5) * unit_len );
+        const np02_xy circle_ctr(x_circle_ctr, y_circle_ctr);
+        np02_circle *circle = (NULL == shp_alloc) ? 
+            new np02_circle() : shp_alloc->alloc_circle();
+        circle->init(circle_ctr, radius);
+        circle->set_shape_invert_status( NP02_SHAPE_INVERT_STATUS_INVERTED );
+
+        np02_boundary_seg *bdry_seg = (NULL == shp_alloc) ? 
+            new np02_boundary_seg() : shp_alloc->alloc_boundary_seg();
+        bdry_seg->set_shape(circle);
+
+        np02_boundary *boundary = (NULL == shp_alloc) ? 
+            new np02_boundary() : shp_alloc->alloc_boundary();
+        boundary->add_boundary_seg_open(bdry_seg);
+
+        region->add_boundary(boundary);
+        }
+    }
+
+/* create random color */
+advance_rand();
+np02_bmp_color clr(0,0,0,false);
+switch(get_rand_int()%6){
+    default:
+    case 0: clr=np02_bmp_color::bl_aqua(); break;
+    case 1: clr=np02_bmp_color::bl_teal(); break;
+    case 2: clr=np02_bmp_color::bl_purple(); break;
+    case 3: clr=np02_bmp_color::bl_red(); break;
+    case 4: clr=np02_bmp_color::bl_maroon(); break;
+    case 5: clr=np02_bmp_color::bl_yellow(); break;
+    }
+if( NULL != color ){
+    *color = clr;
+    }
+
+return region;
 }
 
 void np02_shape_test::free_shapes( np02_shp_alloc *shp_alloc,
@@ -9863,7 +11246,39 @@ if(NULL != shp_alloc){
     }
 }
 
-void np02_shape_test::draw_debug_shapes( const bmp_debug_file_params& p){
+void np02_shape_test::free_regions( np02_shp_alloc *shp_alloc,
+    np02_region_vec *regions ){
+int e = 0;
+if(NULL != shp_alloc){
+    e = shp_alloc->verify_data(AA_ERR_BUF(),
+        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    AA_ALWAYS_ASSERT(0 == e);
+    }
+
+if (NULL != regions){
+    np02_region_vec_citr rgn_itr = regions->begin();
+    for(; rgn_itr != regions->end(); ++rgn_itr){
+        np02_region *region = *rgn_itr;
+        if(NULL == shp_alloc){
+            delete region;
+            }
+        else{
+            shp_alloc->free_region(region);
+            }
+        }
+    regions->clear();
+    }
+
+if(NULL != shp_alloc){
+    e = shp_alloc->verify_data(AA_ERR_BUF(),
+        AA_ERR_BUF_CAPACITY(), AA_ERR_BUF_POS_PTR());
+    AA_ALWAYS_ASSERT(0 == e);
+    }
+}
+
+
+void np02_shape_test::draw_debug_shapes( const bmp_debug_file_params& p,
+    const bool& edges_only ){
 
 if( NULL != p.m_bmp_file ){
     size_t i;
@@ -9890,19 +11305,40 @@ if( NULL != p.m_bmp_file ){
                 ( p.m_err_shape_b != shape ) ){
                 np02_bmp_color color = color_vec.at(i);
                 color.m_blend = true;
-                shape->write_bmp_file(p.m_xy_min, p.m_pixel_num, color, p.m_bmp_file);
+                if( edges_only ){
+                    shape->write_bmp_file_edge(p.m_xy_min, p.m_pixel_num, color,
+                        p.m_bmp_file);
+                    }
+                else{
+                    shape->write_bmp_file(p.m_xy_min, p.m_pixel_num, color,
+                        p.m_bmp_file);
+                    }
                 }
             }
         }
     if( NULL != p.m_err_shape_a ){
         np02_bmp_color color_a = np02_bmp_color::red();
         color_a.m_blend = true;
-        p.m_err_shape_a->write_bmp_file(p.m_xy_min, p.m_pixel_num, color_a, p.m_bmp_file);
+        if( edges_only ){
+            p.m_err_shape_a->write_bmp_file(p.m_xy_min, p.m_pixel_num,
+                color_a, p.m_bmp_file);
+            }
+        else{
+            p.m_err_shape_a->write_bmp_file_edge(p.m_xy_min, p.m_pixel_num,
+                color_a, p.m_bmp_file);
+            }
         }
     if( NULL != p.m_err_shape_b ){
         np02_bmp_color color_b = np02_bmp_color::blue();
         color_b.m_blend = true;
-        p.m_err_shape_b->write_bmp_file(p.m_xy_min, p.m_pixel_num, color_b, p.m_bmp_file);
+        if( edges_only ){
+            p.m_err_shape_b->write_bmp_file_edge(p.m_xy_min, p.m_pixel_num,
+                color_b, p.m_bmp_file);
+            }
+        else{
+            p.m_err_shape_b->write_bmp_file(p.m_xy_min, p.m_pixel_num,
+                color_b, p.m_bmp_file);
+            }
         }
 
     if( ( NULL != p.m_shapes ) &&
@@ -10036,7 +11472,7 @@ m_test_err_msg_pos = 0;
 }
 
 int np02_shape_test::execute_test_1(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int err_cnt = 0;
 std::cout << "shape test 1\n";
 std::cout << "iterations: " << m_shape_test_iteration_count;
@@ -10056,12 +11492,11 @@ if( err_cnt > 0 ){ print_and_clear_test_buf(); }
 if( NULL != AA_ERR_BUF_POS_PTR() && *(AA_ERR_BUF_POS_PTR()) > 0 ){ 
     std::cout << "\n\nAA_ERR_BUF:" << AA_ERR_BUF();
     }
-AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
 int np02_shape_test::execute_test_1_0(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int err_cnt = 0;
 int e = 0;
 
@@ -10195,35 +11630,32 @@ bmp_file_p.m_err_xy_b = NULL;
 bmp_file_p.m_err_shape_a = NULL;
 bmp_file_p.m_err_shape_b = NULL;
 bmp_file_p.m_debug_str_out = NULL;
-draw_debug_shapes( bmp_file_p );
+draw_debug_shapes( bmp_file_p, false );
 
 bmp_file.write_file( bmp_file_p.m_header.c_str() );
 
 err_cnt += np02_dxf_test::run_dxf_test();
 
-AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
 int np02_shape_test::execute_test_1_1(){
 int err_cnt = 0;
 int e = 0;
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 err_cnt += execute_test_1_i();
-AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
 int np02_shape_test::execute_test_1_2(){
 int err_cnt = 0;
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 err_cnt += execute_test_1_i();
-AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
 int np02_shape_test::execute_test_1_i(){
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int e = 0;
 int err_cnt = 0;
 size_t i,j;
@@ -10267,9 +11699,10 @@ CF01_HASH_CONSISTENCY_CHECK( ( ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) +
 
 bool should_write_file = false;
 if( ( m_iteration < 10 ) ||
-    ( ( m_iteration < 100 ) && ( (m_iteration % 10) == 0 ) ) ||
-    ( ( m_iteration < 1000 ) && ( (m_iteration % 100) == 0 ) ) ||
-    ( ( m_iteration < 10000 ) && ( (m_iteration % 1000) == 0 ) ) ){
+    ( ( m_iteration < 100 ) && ( (m_iteration % 10) < 10 ) ) ||
+    ( ( m_iteration < 1000 ) && ( (m_iteration % 100) < 10 ) ) ||
+    ( ( m_iteration < 10000 ) && ( (m_iteration % 1000) < 10 ) ) ||
+    ( ( m_iteration < 100000 ) && ( (m_iteration % 10000) < 10 ) ) ){
     should_write_file = true;
     }
 
@@ -10328,6 +11761,9 @@ for( i = 0; i < shape_vec.size(); ++i){
         }
     }
 
+advance_rand();
+const bool edges_only = (50 > (get_rand_int() % 100)) ? true : false;
+
 if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
     static const double pixels_per_basic_length = 256.0;
@@ -10362,7 +11798,7 @@ if(should_write_file){
     bmp_file_p.m_err_shape_a = err_shape_a;
     bmp_file_p.m_err_shape_b = err_shape_b;
     bmp_file_p.m_debug_str_out = &debug_str_out;
-    draw_debug_shapes( bmp_file_p );
+    draw_debug_shapes( bmp_file_p, edges_only );
     bmp_file.write_file( &(bmp_file_name[0]) );
 
     if(err_xy_found){
@@ -10386,7 +11822,7 @@ if(should_write_file){
         focus_bmp_file_p.m_header = focus_bmp_file_name;
         focus_bmp_file_p.m_shapes = NULL;
         focus_bmp_file_p.m_color_vec = NULL;
-        draw_debug_shapes( focus_bmp_file_p );
+        draw_debug_shapes( focus_bmp_file_p, edges_only );
 
         focus_bmp_file.write_file( &(focus_bmp_file_name[0]) );
         }
@@ -10399,14 +11835,12 @@ CF01_HASH_CONSISTENCY_CHECK( ( ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) +
 free_shapes( shp_alloc, &shape_vec );
 if( NULL != shp_alloc ){ delete shp_alloc;  shp_alloc = NULL; }
 
-AA_DECR_CALL_DEPTH();
-
 return err_cnt;
 }
 
 
 int np02_shape_test::execute_test_2(){ 
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int err_cnt = 0;
 std::cout << "shape test 2\n";
 std::cout << "iterations: " << m_shape_test_iteration_count;
@@ -10437,13 +11871,12 @@ if( err_cnt > 0 ){ print_and_clear_test_buf(); }
 if( NULL != AA_ERR_BUF_POS_PTR() && *(AA_ERR_BUF_POS_PTR()) > 0 ){ 
     std::cout << "\n\nAA_ERR_BUF:" << AA_ERR_BUF();
     }
-AA_DECR_CALL_DEPTH();
 return err_cnt;
 }
 
 
 int np02_shape_test::execute_test_2_0(){ 
-AA_INCR_CALL_DEPTH();
+AA_CALL_DEPTH_BLOCK();
 int e = 0;
 int err_cnt = 0;
 int local_err_cnt = 0;
@@ -10486,9 +11919,10 @@ CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( np02_shape_vec_hash( shape_vec ),
 
 bool should_write_file = false;
 if( ( m_iteration < 10 ) ||
-    ( ( m_iteration < 100 ) && ( (m_iteration % 10) == 0 ) ) ||
-    ( ( m_iteration < 1000 ) && ( (m_iteration % 100) == 0 ) ) ||
-    ( ( m_iteration < 10000 ) && ( (m_iteration % 1000) == 0 ) ) ){
+    ( ( m_iteration < 100 ) && ( (m_iteration % 10) < 10 ) ) ||
+    ( ( m_iteration < 1000 ) && ( (m_iteration % 100) < 10 ) ) ||
+    ( ( m_iteration < 10000 ) && ( (m_iteration % 1000) < 10 ) ) ||
+    ( ( m_iteration < 100000 ) && ( (m_iteration % 10000) < 10 ) ) ){
     should_write_file = true;
     }
 
@@ -10653,6 +12087,8 @@ for( i = 0; i < shape_vec.size(); ++i){
     local_shapes.clear();
     }
 
+advance_rand();
+bool edges_only = (50 > (get_rand_int() % 100)) ? true : false;
 
 if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
@@ -10691,7 +12127,7 @@ if(should_write_file){
     bmp_file_p.m_err_shape_a = err_shape_a;
     bmp_file_p.m_err_shape_b = err_shape_b;
     bmp_file_p.m_debug_str_out = &debug_str_out;
-    draw_debug_shapes( bmp_file_p );
+    draw_debug_shapes( bmp_file_p, edges_only );
     bmp_file.write_file( &(bmp_file_name[0]) );
 
     if(err_xy_found){
@@ -10715,7 +12151,7 @@ if(should_write_file){
         focus_bmp_file_p.m_header = focus_bmp_file_name;
         focus_bmp_file_p.m_shapes = NULL;
         focus_bmp_file_p.m_color_vec = NULL;
-        draw_debug_shapes( focus_bmp_file_p );
+        draw_debug_shapes( focus_bmp_file_p, edges_only );
 
         focus_bmp_file.write_file( &(focus_bmp_file_name[0]) );
         }
@@ -10907,6 +12343,8 @@ for( i = 0; i < shape_vec.size(); ++i){
     local_shapes.clear();
     }
 
+advance_rand();
+edges_only = (50 > (get_rand_int() % 100)) ? true : false;
 
 if(should_write_file){
     np02_bmp_file_init_params bmp_init_params;
@@ -10945,7 +12383,7 @@ if(should_write_file){
     bmp_file_p.m_err_shape_a = err_shape_a;
     bmp_file_p.m_err_shape_b = err_shape_b;
     bmp_file_p.m_debug_str_out = &debug_str_out;
-    draw_debug_shapes( bmp_file_p );
+    draw_debug_shapes( bmp_file_p, edges_only );
     bmp_file.write_file( &(bmp_file_name[0]) );
 
     if(err_xy_found){
@@ -10969,7 +12407,7 @@ if(should_write_file){
         focus_bmp_file_p.m_header = focus_bmp_file_name;
         focus_bmp_file_p.m_shapes = NULL;
         focus_bmp_file_p.m_color_vec = NULL;
-        draw_debug_shapes( focus_bmp_file_p );
+        draw_debug_shapes( focus_bmp_file_p, edges_only );
 
         focus_bmp_file.write_file( &(focus_bmp_file_name[0]) );
         }
@@ -11015,15 +12453,292 @@ CF01_HASH_CONSISTENCY_CHECK( cf01_obj_hash( loc_grid->hash(),
     cf01_obj_hash( np02_shape_vec_hash( shape_vec ),
     ( NULL != shp_alloc ) ? shp_alloc->hash() : 0 ) ) );
 
-if( NULL != shp_alloc ){ delete shp_alloc; shp_alloc=NULL; }
-loc_grid = NULL;
 
-AA_DECR_CALL_DEPTH();
+
+if( NULL != loc_grid ){
+    if(NULL != loc_grid->get_shp_alloc()){
+        loc_grid->get_shp_alloc()->free_loc_grid(loc_grid);
+        }
+    else if( &loc_grid_local != loc_grid ){
+        delete loc_grid;
+        }
+    }
+loc_grid = NULL;
+if( NULL != shp_alloc ){ delete shp_alloc; shp_alloc=NULL; }
 
 return err_cnt;
 }
 
-int np02_shape_test::execute_test_2_1(){ return execute_test_2_0(); }
+int np02_shape_test::execute_test_2_1(){
+ 
+AA_CALL_DEPTH_BLOCK();
+int e = 0;
+int err_cnt = 0;
+int local_err_cnt = 0;
+
+bool print_elapsed_time = false;
+time_t time_a = time(NULL);
+
+/* initialize shape allocator */
+np02_shp_alloc* shp_alloc = NULL;
+if(50 > (get_rand_int() % 100)){
+    shp_alloc = new np02_shp_alloc();
+    e = shp_alloc->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+    err_cnt += e;
+    if( e > 0 ){
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ ); 
+        }
+    }
+
+/* make random shapes & regions */
+advance_rand();
+int ww = 1 + (get_rand_int() % 3);
+advance_rand();
+int hh = 1 + (get_rand_int() % 3);
+advance_rand();
+double basic_length = 1.0;
+switch(get_rand_int() % 7){
+    default: 
+    case 0:  basic_length = 0.01; break;
+    case 1:  basic_length = 0.1; break;
+    case 2:  basic_length = 1.0; break;
+    case 3:  basic_length = 10.0; break;
+    case 4:  basic_length = 100.0; break;
+    case 5:  basic_length = 1000.0; break;
+    case 6:  basic_length = 10000.0; break;
+    }
+np02_region_vec regions;
+std::vector<np02_bmp_color> color_vec;
+make_rand_regions( shp_alloc, ww, hh, basic_length, &regions, &color_vec );
+const size_t total_rgn_shp_count = np02_region_vec_get_shape_count(regions);
+
+/* print elapsed time */
+time_t time_b = time(NULL);
+if( print_elapsed_time){
+    std::cout << __FILE__ << " " << __LINE__
+        << "  iteration=" << m_iteration
+        << "  elapsed_time_seconds=" << (time_b - time_a)
+        << "  total_rgn_shp_count=" << total_rgn_shp_count
+        << "\n";
+    }
+time_a = time_b;
+
+bool should_write_file = false;
+if( ( m_iteration < 10 ) ||
+    ( ( m_iteration < 100 ) && ( (m_iteration % 10) < 10 ) ) ||
+    ( ( m_iteration < 1000 ) && ( (m_iteration % 100) < 10 ) ) ||
+    ( ( m_iteration < 10000 ) && ( (m_iteration % 1000) < 10 ) ) ||
+    ( ( m_iteration < 100000 ) && ( (m_iteration % 10000) < 10 ) ) ){
+    should_write_file = true;
+    }
+
+/* calculate locator grid dimensions */
+np02_loc_grid_dim_init_params loc_grid_dim_p;
+loc_grid_dim_p.m_shape_count = np02_region_vec_get_shape_count(regions);
+np02_region_vec_get_bb(regions, &(loc_grid_dim_p.m_bb_min_xy),
+    &(loc_grid_dim_p.m_bb_max_xy), NULL);
+loc_grid_dim_p.m_loc_grid_density = 0.125;
+loc_grid_dim_p.m_max_loc_grid_sq_count = 4096;
+np02_loc_grid_dim loc_grid_dim;
+loc_grid_dim.init(&loc_grid_dim_p);
+
+/* initialize locator grid */
+np02_loc_grid loc_grid_local;
+np02_loc_grid* loc_grid;
+
+if (NULL != shp_alloc) {
+    loc_grid = shp_alloc->alloc_loc_grid();
+}
+else if (50 > (get_rand_int() % 100)) {
+    loc_grid = new np02_loc_grid();
+}
+else {
+    loc_grid = &loc_grid_local;
+}
+
+e = loc_grid->verify_data(m_temp_err_msg,
+    TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+err_cnt += e;
+if (e > 0) {
+    print_temp_buf_to_test_buf(__FILE__, __LINE__);
+}
+
+const double extra_search_d = basic_length / 128.0;
+loc_grid->set_extra_search_d(extra_search_d);
+loc_grid->init_loc_grid(loc_grid_dim);
+
+e = loc_grid->verify_data(m_temp_err_msg,
+    TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+err_cnt += e;
+if (e > 0) {
+    print_temp_buf_to_test_buf(__FILE__, __LINE__);
+}
+
+CF01_HASH_CONSISTENCY_CHECK(cf01_obj_hash(loc_grid->hash(),
+    cf01_obj_hash(np02_region_vec_hash(regions),
+        (NULL != shp_alloc) ? shp_alloc->hash() : 0)));
+
+/* print elapsed time */
+time_b = time(NULL);
+if (print_elapsed_time) {
+    std::cout << __FILE__ << " " << __LINE__
+        << "  elapsed_time_seconds=" << (time_b - time_a) << "\n";
+}
+time_a = time_b;
+
+np02_region_vec_citr rgn_itr = regions.begin();
+for(; regions.end() != rgn_itr; ++rgn_itr ){
+    np02_region *region = *rgn_itr;
+    region->insert_region_in_loc_grid(loc_grid);
+    e = region->verify_data(m_temp_err_msg,
+        TEMP_ERR_MSG_CAP, &m_temp_err_msg_pos);
+    e += np02_region::verify_loc_grid_properly_contains_region(
+        loc_grid, region,m_temp_err_msg,TEMP_ERR_MSG_CAP,&m_temp_err_msg_pos);
+    err_cnt += e;
+    if (e > 0) {
+        print_temp_buf_to_test_buf(__FILE__, __LINE__);
+        }
+    const double gap_sum1 = region->get_boundary_gap_sum();
+    //std::cout << "gap_sum1 = " << gap_sum1 << "\n";
+    }
+
+/* print elapsed time */
+time_b = time(NULL);
+if (print_elapsed_time) {
+    std::cout << __FILE__ << " " << __LINE__
+        << "  elapsed_time_seconds=" << (time_b - time_a) << "\n";
+
+    np02_loc_grid::node_stats stats;
+    loc_grid->get_node_stats(&stats);
+    std::cout << "locator grid stats:\n"
+        << "    shape_count            = " << stats.m_shape_count << "\n"
+        << "    grid_sq_count          = " << stats.m_grid_sq_count << "\n"
+        << "    node_count             = " << stats.m_node_count << "\n"
+        << "    shapes_per_grid_sq     = " << stats.m_shapes_per_grid_sq << "\n"
+
+        << "    nodes_in_grid_sq_min   = " << stats.m_nodes_in_grid_sq_min << "\n"
+        << "    nodes_in_grid_sq_max   = " << stats.m_nodes_in_grid_sq_max << "\n"
+        << "    nodes_in_grid_sq_ave   = " << stats.m_nodes_in_grid_sq_ave << "\n"
+        << "    nodes_in_grid_sq_stdev = " << stats.m_nodes_in_grid_sq_stdev << "\n"
+
+        << "    nodes_for_shape_min    = " << stats.m_nodes_for_shape_min << "\n"
+        << "    nodes_for_shape_max    = " << stats.m_nodes_for_shape_max << "\n"
+        << "    nodes_for_shape_ave    = " << stats.m_nodes_for_shape_ave << "\n"
+        << "    nodes_for_shape_stdev  = " << stats.m_nodes_for_shape_stdev << "\n";
+    }
+time_a = time_b;
+
+CF01_HASH_CONSISTENCY_CHECK(cf01_obj_hash(loc_grid->hash(),
+    cf01_obj_hash(np02_region_vec_hash(regions),
+        (NULL != shp_alloc) ? shp_alloc->hash() : 0)));
+
+
+advance_rand();
+const bool edges_only = (50 > (get_rand_int() % 100)) ? true : false;
+
+if( should_write_file )
+    {  
+    const np02_xy bmp_min_xy(
+        loc_grid_dim_p.m_bb_min_xy.get_x() - loc_grid_dim.get_sq_size(),
+        loc_grid_dim_p.m_bb_min_xy.get_y() - loc_grid_dim.get_sq_size() );
+    const np02_xy bmp_max_xy(
+        loc_grid_dim_p.m_bb_max_xy.get_x() + loc_grid_dim.get_sq_size(),
+        loc_grid_dim_p.m_bb_max_xy.get_y() + loc_grid_dim.get_sq_size());
+    const double bmp_x_sz = bmp_max_xy.get_x() - bmp_min_xy.get_x();
+    const double bmp_y_sz = bmp_max_xy.get_y() - bmp_min_xy.get_y();
+    const double bmp_xy_area = bmp_x_sz * bmp_y_sz;
+
+    static const double goal_w_h_px = 512.0;
+    static const double goal_area_px2 = goal_w_h_px * goal_w_h_px;
+    np02_bmp_file_init_params bmp_init_params;
+    double pixel_num = 1.0;
+    if (bmp_xy_area > 0.0) {
+        pixel_num = sqrt(goal_area_px2/ bmp_xy_area);
+        bmp_init_params.width_px =
+            static_cast<int32_t>(floor(bmp_x_sz * pixel_num));
+        bmp_init_params.height_px =
+            static_cast<int32_t>(floor(bmp_y_sz * pixel_num));
+        }
+    else{
+        bmp_init_params.width_px = static_cast<int32_t>(goal_w_h_px);
+        bmp_init_params.height_px = static_cast<int32_t>(goal_w_h_px);
+        }
+    np02_bmp_file bmp_file(bmp_init_params);
+
+    loc_grid->write_bmp_file(bmp_min_xy, pixel_num,
+        np02_bmp_color::gray(), &bmp_file);
+
+    static const time_t regions_bmp_output_time_limit = 20;
+    time_t now = time(NULL);
+    time_t regions_bmp_output_deadline = now + regions_bmp_output_time_limit + 1;
+    rgn_itr = regions.begin();
+    std::vector<np02_bmp_color>::const_iterator color_itr = color_vec.begin();
+    for (; (regions.end() != rgn_itr) && (color_vec.end() != color_itr);
+        ++rgn_itr, ++color_itr) {
+        const np02_region* region = *rgn_itr;
+        const np02_bmp_color& color = *color_itr;
+        now = time(NULL);
+        if (now < regions_bmp_output_deadline) {
+            const time_t rgn_bmp_out_time_limit = 
+                regions_bmp_output_deadline - now;
+            if (edges_only) {
+                region->write_bmp_file_edge(bmp_min_xy,
+                    pixel_num, color, &bmp_file, rgn_bmp_out_time_limit);
+                }
+            else {
+                region->write_bmp_file(bmp_min_xy, pixel_num,
+                    color, &bmp_file, rgn_bmp_out_time_limit);
+                }
+            }
+        }
+
+    char bmp_file_name_buf[255];
+    sprintf(&(bmp_file_name_buf[0]), "shape_test2_1_%i.bmp", m_iteration );
+    std::string bmp_file_name( bmp_file_name_buf ); 
+    const std::string prog_str = np02_test_main::get_prog_name() +
+        std::string(" ") + np02_test_main::get_version_str();
+
+    bmp_file.write_file( &(bmp_file_name[0]) );
+
+    if (print_elapsed_time) {
+        std::cout << __FILE__ << " " << __LINE__
+            << "  bmp_file_name=" << bmp_file_name << "\n";
+        }
+
+    }
+
+/* print elapsed time */
+time_b = time(NULL);
+if (print_elapsed_time) {
+    std::cout << __FILE__ << " " << __LINE__
+        << "  elapsed_time_seconds=" << (time_b - time_a) << "\n";
+    }
+time_a = time_b;
+
+free_regions(shp_alloc, &regions);
+
+if( NULL != loc_grid ){
+    if(NULL != loc_grid->get_shp_alloc()){
+        loc_grid->get_shp_alloc()->free_loc_grid(loc_grid);
+        }
+    else if( &loc_grid_local != loc_grid ){
+        delete loc_grid;
+        }
+    }
+loc_grid = NULL;
+if( NULL != shp_alloc ){ delete shp_alloc; shp_alloc=NULL; }
+
+/* print elapsed time */
+time_b = time(NULL);
+if (print_elapsed_time) {
+    std::cout << __FILE__ << " " << __LINE__
+        << "  elapsed_time_seconds=" << (time_b - time_a) << "\n";
+    }
+time_a = time_b;
+
+return err_cnt;
+}
 
 int np02_shape_test::execute_test_3(){ return 0; }
 int np02_shape_test::execute_test_4(){ return 0; }

@@ -1,0 +1,1 @@
+..\Profile\np02_test.exe --test=2 --test-rand-seed=17 --test-iterations=50 >> test_itr_50_profile_output.txt

@@ -610,7 +610,7 @@ const int np02_bmp_file::m_hershey_simplex_font_coord[95][112] = {
 
 
 
-np02_bmp_file::np02_bmp_file(){
+np02_bmp_file::np02_bmp_file() : m_header(), m_rows() {
 }
 
 np02_bmp_file::np02_bmp_file(const np02_bmp_file_init_params& init_params){
@@ -620,6 +620,7 @@ init(init_params);
 np02_bmp_file::~np02_bmp_file(){
 }
 
+/* constrain i to lie within [0,width-1] */
 int32_t np02_bmp_file::get_clamped_i( const int32_t& i ) const{
 int32_t clamped_i = 0;
 if( m_header.width_px > 0 ){
@@ -629,11 +630,12 @@ if( m_header.width_px > 0 ){
 return clamped_i;
 }
 
+/* constrain j to lie within [0,height-1] */
 int32_t np02_bmp_file::get_clamped_j( const int32_t& j ) const{
 int32_t clamped_j = 0;
 if( m_header.height_px > 0 ){
     clamped_j = ( j < 0 ) ? 0 : 
-        ( j >= m_header.height_px ) ? (m_header.width_px-1) : j;
+        ( j >= m_header.height_px ) ? (m_header.height_px-1) : j;
     }
 return clamped_j;
 }
@@ -641,7 +643,7 @@ return clamped_j;
 double np02_bmp_file::get_clamped_i_dbl( const double& i ) const{
 double clamped_i = 0.0;
 if( m_header.width_px > 0 ){
-    const double max_i = static_cast<double>( m_header.width_px - 1 );
+    const double max_i = static_cast<double>( m_header.width_px ) - 1.0;
     clamped_i = ( i < 0.0 ) ? 0.0 : ( i > max_i ) ? max_i : i;
     }
 return clamped_i;
@@ -650,7 +652,7 @@ return clamped_i;
 double np02_bmp_file::get_clamped_j_dbl( const double& j ) const{
 double clamped_j = 0.0;
 if( m_header.width_px > 0 ){
-    const double max_j = static_cast<double>( m_header.height_px - 1 );
+    const double max_j = static_cast<double>( m_header.height_px ) - 1.0;
     clamped_j = ( j < 0.0 ) ? 0.0 : ( j > max_j ) ? max_j : j;
     }
 return clamped_j;
@@ -694,7 +696,7 @@ void np02_bmp_file::draw_pixel(const int32_t& i,const int32_t& j,
     const np02_bmp_color& color){
 if((i>=0) && (i<m_header.width_px) && (j>=0) && (j<m_header.height_px)){
     uint8_vec *row = &(m_rows.at(j));
-    uint8_vec_itr byte_itr = (row->begin()) + (3*i);
+    uint8_vec_itr byte_itr = (row->begin()) + (3*static_cast<size_t>(i));
     if(color.m_blend){
         const uint16_t b0 = static_cast<uint16_t>(*byte_itr);
         const uint16_t g0 = static_cast<uint16_t>(*(byte_itr+1));

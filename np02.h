@@ -33,6 +33,7 @@ Reference: https://opensource.org/licenses/ISC
 #include "cf01.h"
     #define AA_INCR_CALL_DEPTH()        CF01_AA_INCR_CALL_DEPTH()
     #define AA_DECR_CALL_DEPTH()        CF01_AA_DECR_CALL_DEPTH()
+    #define AA_CALL_DEPTH_BLOCK()       CF01_AA_CALL_DEPTH_BLOCK()
     #define AUTO_ASSERT( _condition )   CF01_AUTO_ASSERT(_condition)
     #define AA_ALWAYS_ASSERT( _condition ) \
                   CF01_AA_XDBG_ASSERT((_condition), CF01_AA_DEBUG_LEVEL_0)
@@ -48,7 +49,8 @@ Reference: https://opensource.org/licenses/ISC
     #define AA_DEBUG_LEVEL_3            CF01_AA_DEBUG_LEVEL_3
 #else
     #define AA_INCR_CALL_DEPTH()        
-    #define AA_DECR_CALL_DEPTH()        
+    #define AA_DECR_CALL_DEPTH()
+    #define AA_CALL_DEPTH_BLOCK()
     #define AUTO_ASSERT( _condition )   assert(_condition)
     #define AA_ALWAYS_ASSERT( _condition )   assert(_condition)
     #define AA_SHOULD_RUN_XDBG(_dbg_lvl)  (0)
@@ -136,6 +138,7 @@ else{
 
 /* np02_shape.cpp */
 class np02_xy;
+union np02_shape_aux_data;
 class np02_shape_owner;
 class np02_shape_handle;
 class np02_shape;
@@ -236,13 +239,43 @@ typedef np02_xy_vec::const_iterator np02_xy_vec_citr;
 typedef np02_xy_vec::iterator np02_xy_vec_itr;
 
 
+union np02_shape_aux_data{
+public:
+    typedef uint64_t idx_type;
+public:
+    static const idx_type m_invalid_idx;
+    static const np02_shape_aux_data m_invalid_aux_data;
+private:
+    const void *m_cptr;
+    void *m_ptr;
+    idx_type m_idx;
+public:
+    np02_shape_aux_data(): m_idx(0){
+        AUTO_ASSERT(NULL == m_cptr);AUTO_ASSERT(NULL == m_ptr);}
+    np02_shape_aux_data(const idx_type& idx): m_idx(idx){
+        AUTO_ASSERT(NULL != m_cptr);AUTO_ASSERT(NULL != m_ptr);}
+    np02_shape_aux_data(const np02_shape_aux_data& master): m_idx(master.m_idx){
+        AUTO_ASSERT(m_cptr == master.m_cptr);
+        AUTO_ASSERT(m_ptr == master.m_ptr); }
+    np02_shape_aux_data& operator=(const np02_shape_aux_data& master){
+        m_idx = master.m_idx; AUTO_ASSERT(m_cptr == master.m_cptr);
+        AUTO_ASSERT(m_ptr == master.m_ptr); return *this; }
+    void set_cptr(const void *p){ m_cptr = p; }
+    const void *get_cptr() const{ return m_cptr; }
+    void set_ptr(void *p){ m_ptr = p; }
+    void *get_ptr() const{ return m_ptr; }
+    void set_idx(const idx_type& i){ m_idx = i; }
+    const idx_type& get_idx() const{ return m_idx; }
+    static const idx_type& invalid_idx(){ return m_invalid_idx; }
+    static const np02_shape_aux_data invalid_aux_data(){
+        return m_invalid_aux_data; }
+};
+
+
 typedef uint32_t shape_idx_type;
-typedef uint64_t shp_hndl_owner_idx_type;
 typedef uint64_t lyr_idx_type;
 
 #define NP02_SHAPE_MAX_IDX (std::numeric_limits<shape_idx_type>::max()/4)
-#define NP02_SHP_HNDL_OWNER_INVALID_IDX \
-    (std::numeric_limits<shp_hndl_owner_idx_type>::max())
 #define NP02_LYR_INVALID_IDX (std::numeric_limits<lyr_idx_type>::max())
 
 
@@ -279,7 +312,7 @@ private:
     np02_shp_alloc *m_shp_alloc;
     size_t m_alloc_idx; /* np02_shp_alloc::alloc_get_shape_handle_by_idx() */
     np02_shape_handle_type m_hndl_type;
-    shp_hndl_owner_idx_type m_owner_idx;
+    np02_shape_aux_data m_aux_data;
 	object_ptr m_object_ptr;
 public:
 	np02_shape_handle();
@@ -295,8 +328,8 @@ public:
     virtual np02_shp_alloc *get_shp_alloc() const;
     void set_alloc_idx( const size_t& i){ m_alloc_idx = i; }
     const size_t& get_alloc_idx() const{ return m_alloc_idx; }
-    void set_owner_idx( const shp_hndl_owner_idx_type& i){ m_owner_idx = i; }
-    const shp_hndl_owner_idx_type& get_owner_idx() const{ return m_owner_idx; }
+    void set_aux_data( const np02_shape_aux_data& d){ m_aux_data = d; }
+    const np02_shape_aux_data& get_aux_data() const{ return m_aux_data; }
     void set_shape(np02_shape *shape);
     void set_region(np02_region *region);
 	virtual np02_shape *get_shape() const;
@@ -499,6 +532,9 @@ public:
     void set_shape_idx(const shape_idx_type& shape_idx){m_shape_idx=shape_idx;}
     shape_idx_type get_shape_idx() const{return m_shape_idx;}
     np02_shape_owner *get_shape_owner() const{ return m_shape_owner; }
+    np02_boundary_seg *get_boundary_seg() const;
+    np02_boundary *get_boundary() const;
+    np02_region *get_region() const;
     void set_shape_owner(np02_shape_owner *o){m_shape_owner=o;}
     void set_shp_alloc(np02_shp_alloc *shp_alloc){ m_shp_alloc = shp_alloc; }
     np02_shp_alloc *get_shp_alloc() const { return m_shp_alloc; }
@@ -517,6 +553,8 @@ public:
         const=0;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const=0;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const=0;
@@ -540,10 +578,23 @@ public:
     virtual void rotate(const np02_xy& rot_ctr, const double& rot_deg);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg) = 0;
-
+    virtual void reverse_orientation();
+    virtual void invert();
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const=0;
+    virtual int compare( const np02_shape *other ) const=0;
+    
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
-    virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
-                     size_t *err_msg_pos ) const;
+    virtual int verify_data(char* err_msg, const size_t err_msg_capacity,
+        size_t* err_msg_pos) const;
+    int verify_data_loc_grid_nodes_nearby(char* err_msg,
+        const size_t err_msg_capacity, size_t* err_msg_pos) const;
+    static int verify_shape_loc_grid_node_nearby(const np02_shape* shape,
+        const np02_loc_grid_node* n, char *err_msg,
+        const size_t err_msg_capacity, size_t* err_msg_pos);
+    static int verify_loc_grid_properly_contains_shape(
+        const np02_loc_grid* loc_grid, const np02_shape* shape,
+        char *err_msg, const size_t err_msg_capacity,
+        size_t* err_msg_pos);
     static int verify_distance_from_shape_result(
         const np02_shape *shape_a,
         const np02_shape *shape_b, const np02_xy& xy_near_a,
@@ -575,8 +626,14 @@ public:
     virtual void write_bmp_file(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
         const uint8_t& color, np02_dxf_file *dxf_file) const;
+protected:
+    void copy_shape_data_to( np02_shape *destination_shape) const;
+    int compare_shape_data( const np02_shape *other ) const;
 };
 
 typedef std::vector<np02_shape *> np02_shape_vec;
@@ -585,7 +642,12 @@ typedef np02_shape_vec::const_iterator np02_shape_vec_citr;
 
 uint64_t np02_shape_vec_hash( const np02_shape_vec& v, 
     const uint64_t& h_in = 0 );
-
+void np02_shape_vec_copy_shapes( const np02_shape_vec& v, 
+    np02_shape_vec *destination, np02_shp_alloc *shp_alloc=NULL);
+int np02_shape_vec_compare( const np02_shape_vec& x,
+    const np02_shape_vec& y );
+void np02_shape_vec_get_bb(const np02_shape_vec& v, np02_xy* xy_min,
+    np02_xy* xy_max, bool* valid);
 
 class np02_circle: public np02_shape{
 private:
@@ -611,6 +673,8 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const;
@@ -629,12 +693,20 @@ public:
     virtual void translate_no_loc_grid(const np02_xy& dxy);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const;
+    np02_circle *copy_circle(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_circle( const np02_circle *master );
+    virtual int compare( const np02_shape *other ) const;
+    int compare_circle( const np02_circle *other ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
     virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
@@ -677,6 +749,8 @@ public:
        double m_start_angle_deg; 
        double m_end_angle_deg;
        double m_width;
+       init_params(): m_ctr(0.0, 0.0), m_radius(0.0), m_start_angle_deg(0.0),
+           m_end_angle_deg(0.0), m_width(0.0){}
     };
     struct init3pt_params{
        np02_xy m_pa;
@@ -684,11 +758,14 @@ public:
        np02_xy m_pc;
        double m_width;
        double m_max_radius;
+       init3pt_params(): m_pa(0.0, 0.0), m_pb(0.0, 0.0), m_pc(0.0, 0.0), m_width(0.0),
+           m_max_radius(0.0) {}
     };
     struct init3pt_aux_params{
        np02_xy m_p_0;
        np02_xy m_p_1;
        bool m_is_straight;
+       init3pt_aux_params() : m_p_0(0.0, 0.0), m_p_1(0.0, 0.0), m_is_straight(false) {}
     };
 private:
     /* init data */
@@ -755,6 +832,8 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const;
@@ -773,12 +852,20 @@ public:
     virtual void translate_no_loc_grid(const np02_xy& dxy);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const;
+    np02_arc *copy_arc(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_arc( const np02_arc *master );
+    virtual int compare( const np02_shape *other ) const;
+    int compare_arc( const np02_arc *other ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
     virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
@@ -893,6 +980,8 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const;
@@ -911,16 +1000,22 @@ public:
     virtual void translate_no_loc_grid(const np02_xy& dxy);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const;
+    np02_rect *copy_rect(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_rect( const np02_rect *master );
+    virtual int compare( const np02_shape *other ) const;
+    int compare_rect( const np02_rect *other ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
         size_t *err_msg_pos ) const;
     int verify_data_num( char *err_msg, const size_t err_msg_capacity,
         size_t *err_msg_pos ) const;
-    int verify_data_rect_loc_grid( char *err_msg,
-        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
     virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
@@ -960,6 +1055,8 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     double get_distance_from_xy_hw(const np02_xy& xy,
         const double& hw, np02_xy *near_xy=NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
@@ -989,6 +1086,11 @@ public:
         const np02_line_seg *n, np02_xy *xy_intsct_0, np02_xy *xy_intsct_1,
         const size_t& intsct_count, char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const;
+    np02_line_seg *copy_line_seg(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_line_seg( const np02_line_seg *master );
+    virtual int compare( const np02_shape *other ) const;
+    int compare_line_seg( const np02_line_seg *other ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
@@ -997,6 +1099,9 @@ public:
         size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
     virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
@@ -1022,6 +1127,8 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const;
@@ -1040,12 +1147,20 @@ public:
     virtual void translate_no_loc_grid(const np02_xy& dxy);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const;
+    np02_polygon *copy_polygon(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_polygon( const np02_polygon *master );
+    virtual int compare( const np02_shape *other ) const;
+    int compare_polygon( const np02_polygon *other ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     virtual std::ostream& ostream_output(std::ostream& os) const;
     virtual void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
@@ -1070,6 +1185,8 @@ public:
         const;
     virtual double get_distance_from_xy(const np02_xy& xy,
         np02_xy *near_xy=NULL) const;
+    virtual double get_bseg_dist_from_xy(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL) const;
     virtual double get_distance_from_line_seg_ab(const np02_xy& xy_a,
         const np02_xy& xy_b, np02_xy *near_xy=NULL,
         np02_xy *other_near_xy=NULL) const;
@@ -1088,6 +1205,11 @@ public:
     virtual void translate_no_loc_grid(const np02_xy& dxy);
     virtual void rotate_no_loc_grid(const np02_xy& rot_ctr,
         const double& rot_deg);
+    virtual np02_shape *copy_shape(np02_shp_alloc *shp_alloc=NULL) const;
+    np02_spline *copy_spline(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_spline( const np02_spline *master );
+    virtual int compare( const np02_shape *other ) const;
+    int compare_spline( const np02_spline *other ) const;
 
     virtual uint64_t hash( const uint64_t& h_in=0 ) const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
@@ -1096,17 +1218,25 @@ public:
     virtual void write_bmp_file(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
+    virtual void write_bmp_file_edge(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
     virtual void write_dxf_file(const std::string& layer,
         const uint8_t& color, np02_dxf_file *dxf_file) const;
 };
 
 
-/* initialize from points */
+/* initialize from shape information */
 struct np02_loc_grid_dim_init_params{
-    size_t point_count; /* number of points */
-    np02_xy bb_min_xy, bb_max_xy;  /* bounding box of points */
-    double loc_grid_density; /* target density = points / grid square */
-    size_t max_loc_grid_sq_count; /* target max number of grid squares */
+public:
+    size_t m_shape_count; /* number of shapes to store in grid */
+    np02_xy m_bb_min_xy, m_bb_max_xy;  /* bounding box of points */
+    double m_loc_grid_density; /* target density = shapes / grid square */
+    size_t m_max_loc_grid_sq_count; /* target max number of grid squares */
+public:
+    np02_loc_grid_dim_init_params(): m_shape_count(1),
+        m_bb_min_xy(0.0,0.0), m_bb_max_xy(0.0, 0.0),
+        m_loc_grid_density(1.0), m_max_loc_grid_sq_count(1){}
 };
 
 
@@ -1301,6 +1431,7 @@ public:
     np02_loc_grid_node *get_s_prev() const { return m_s_prev; }
     np02_loc_grid_node *get_s_next() const { return m_s_next; }
     np02_shp_alloc *get_shp_alloc() const;
+    double get_node_ctr_d_from_shape() const;
     lyr_idx_type get_lyr_idx() const;
 
     uint64_t hash( const uint64_t& h_in=0 ) const;
@@ -1312,7 +1443,64 @@ public:
         np02_bmp_file *bmp_file) const;
 };
 
+
 class np02_loc_grid{
+public:
+    struct node_stats{
+    public:
+        /* total number of shapes */
+        size_t m_shape_count;
+
+        /* total number of grid squares */
+        size_t m_grid_sq_count;
+
+        /* total number of loc_grid_nodes in locator grid */
+        size_t m_node_count;
+
+        /* total number of shapes / total number of grid squares */
+        double m_shapes_per_grid_sq;
+        
+        /* number of nodes in a particular grid square */
+        size_t m_nodes_in_grid_sq_min;
+        size_t m_nodes_in_grid_sq_max;
+        double m_nodes_in_grid_sq_ave;
+        double m_nodes_in_grid_sq_stdev;
+
+        /* number of nodes occupied by a shape */
+        size_t m_nodes_for_shape_min;
+        size_t m_nodes_for_shape_max;
+        double m_nodes_for_shape_ave;
+        double m_nodes_for_shape_stdev;
+    public:
+        node_stats() : 
+            m_shape_count(0),
+            m_grid_sq_count(0),
+            m_node_count(0),
+            m_shapes_per_grid_sq(0.0),
+            m_nodes_in_grid_sq_min(0),
+            m_nodes_in_grid_sq_max(0),
+            m_nodes_in_grid_sq_ave(0.0),
+            m_nodes_in_grid_sq_stdev(0.0),
+            m_nodes_for_shape_min(0),
+            m_nodes_for_shape_max(0),
+            m_nodes_for_shape_ave(0.0),
+            m_nodes_for_shape_stdev(0.0){}
+        void reset() {
+            m_shape_count=0;
+            m_grid_sq_count = 0;
+            m_node_count = 0;
+            m_shapes_per_grid_sq = 0.0;
+            m_nodes_in_grid_sq_min = 0;
+            m_nodes_in_grid_sq_max = 0;
+            m_nodes_in_grid_sq_ave = 0.0;
+            m_nodes_in_grid_sq_stdev = 0.0;
+            m_nodes_for_shape_min = 0;
+            m_nodes_for_shape_max = 0;
+            m_nodes_for_shape_ave = 0.0;
+            m_nodes_for_shape_stdev = 0.0;
+            }
+    };
+ 
 public:
     typedef std::vector<np02_loc_grid_node *> loc_grid_node_vec;
     typedef loc_grid_node_vec::iterator loc_grid_node_vec_itr;
@@ -1350,7 +1538,7 @@ public:
     const double& get_extra_search_d() const{ return m_extra_search_d; }
     const np02_loc_grid_dim& get_loc_grid_dim()const{return m_loc_grid_dim;}
     const np02_loc_grid_node *get_loc_grid_head_node(
-        const uint16_t i, const uint16_t j){
+        const uint16_t i, const uint16_t j) const{
         const size_t loc_grid_idx = static_cast<size_t>(j) +
            (static_cast<size_t>(i)*static_cast<size_t>(m_loc_grid_dim.get_h()));
         return (loc_grid_idx < m_loc_grid_vec.size()) ?
@@ -1360,10 +1548,13 @@ public:
     void get_shapes_in_bb(const np02_xy& xy_min, const np02_xy& xy_max,
         np02_shape_vec *shapes ) const;
     double get_small_distance() const{ return m_small_distance; }
+    void get_node_stats(node_stats *s) const;
 
     uint64_t hash( const uint64_t& h_in=0 ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
+    int verify_shapes_have_correct_nodes( char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     std::ostream& ostream_output(std::ostream& os) const;
     std::ostream& ostream_output_brief_table(std::ostream& os) const;
     void write_bmp_file(const np02_xy& xy_min,
@@ -1402,17 +1593,41 @@ public:
     const size_t& get_alloc_idx() const{ return m_alloc_idx; }
     void set_owner(np02_boundary *owner){ m_owner = owner; }
     np02_boundary *get_owner() const{ return m_owner; }
+    np02_region *get_region() const;
     void set_shape(np02_shape *shape);
 	virtual np02_shape *get_shape() const;
+    np02_loc_grid *get_loc_grid() const;
+    void insert_boundary_seg_in_loc_grid(np02_loc_grid *loc_grid);
+    void remove_boundary_seg_from_loc_grid();
     void set_prev(np02_boundary_seg *prev){ m_prev = prev; }
     np02_boundary_seg *get_prev() const{ return m_prev; }
     void set_next(np02_boundary_seg *next){ m_next = next; }
     np02_boundary_seg *get_next() const{ return m_next; }
+    np02_xy get_p0() const;
+    np02_xy get_p1() const;
+    double get_boundary_gap_to_next() const;
+    void translate(const np02_xy& dxy);
+    void translate_no_loc_grid(const np02_xy& dxy);
+    void rotate(const np02_xy& rot_ctr, const double& rot_deg);
+    void rotate_no_loc_grid(const np02_xy& rot_ctr, const double& rot_deg);
+    void invert();
+    np02_boundary_seg *copy_boundary_seg(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_boundary_seg( const np02_boundary_seg *master );
+    int compare_boundary_seg( const np02_boundary_seg *other ) const;
     uint64_t hash( const uint64_t& h_in=0 ) const;
+    double get_distance_from_xy(const np02_xy& xy, np02_xy *near_xy=NULL,
+        double *d_from2 = NULL, bool *valid = NULL)const;
     virtual int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
+    static int verify_loc_grid_properly_contains_boundary_seg(
+        const np02_loc_grid* loc_grid, const np02_boundary_seg* boundary_seg,
+        char* err_msg, const size_t err_msg_capacity,
+        size_t* err_msg_pos);
     std::ostream& ostream_output(std::ostream& os) const;
     void write_bmp_file(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
+    void write_bmp_file_edge(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
     void write_dxf_file(const std::string& layer,
@@ -1477,6 +1692,13 @@ public:
     np02_boundary_seg *get_boundary_segs_head() const{ return m_segs_head; }
     np02_boundary_seg *get_boundary_segs_tail() const{ return m_segs_tail; }
     size_t get_boundary_seg_count() const;
+	np02_shape *get_first_shape() const;
+    size_t get_shape_count() const;
+    void get_shape_count_lower_bound( const size_t& max_shape_count_l_b,
+        size_t *count_l_b ) const;
+    np02_loc_grid *get_loc_grid() const;
+    void insert_boundary_in_loc_grid(np02_loc_grid *loc_grid);
+    void remove_boundary_from_loc_grid();
     void set_rgn_bdry_prev(np02_boundary *n){ m_rgn_bdry_prev = n; }
     np02_boundary *get_rgn_bdry_prev() const{ return m_rgn_bdry_prev; }
     void set_rgn_bdry_next(np02_boundary *n){ m_rgn_bdry_next = n; }
@@ -1488,19 +1710,40 @@ public:
         return const_cast<const np02_boundary_seg *>(advance_boundary_seg_itr(
             const_cast<np02_boundary_seg *>(bndry_seg_citr))); }
     void get_bb(np02_xy *xy_min, np02_xy *xy_max, bool *valid) const;
-    /* TODO: get locator grid */
-    /* TODO: get near point on region to given (x,y) */
+    double get_boundary_gap_sum() const;
+    void translate(const np02_xy& dxy);
+    void translate_no_loc_grid(const np02_xy& dxy);
+    void rotate(const np02_xy& rot_ctr, const double& rot_deg);
+    void rotate_no_loc_grid(const np02_xy& rot_ctr, const double& rot_deg);
+    void invert();
+    np02_boundary *copy_boundary(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_boundary( const np02_boundary *master );
+    int compare_boundary( const np02_boundary *other ) const;
     uint64_t hash( const uint64_t& h_in=0 ) const;
+    double get_distance_from_xy(const np02_xy& xy, np02_xy *near_xy=NULL,
+        double *d_from2 = NULL, bool *valid = NULL)const;
+    double get_distance_from_xy_exh_srch(const np02_xy& xy, np02_xy *near_xy=NULL,
+        double *d_from2 = NULL, bool *valid = NULL)const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
         size_t *err_msg_pos ) const;
     int verify_data_segs_head_tail( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    static int verify_loc_grid_properly_contains_boundary(
+        const np02_loc_grid* loc_grid, const np02_boundary* boundary,
+        char* err_msg, const size_t err_msg_capacity,
+        size_t* err_msg_pos);
     std::ostream& ostream_output(std::ostream& os) const;
     void write_bmp_file(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
         np02_bmp_file *bmp_file) const;
+    void write_bmp_file_edge(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file) const;
     void write_dxf_file(const std::string& layer,
         const uint8_t& color, np02_dxf_file *dxf_file) const;
+public:
+    void init_star(const np02_xy& ctr, const double& radius, const size_t& n);
+    void init_rectangle(const np02_xy& xy_rect_min, const np02_xy& xy_rect_max);
 };
 
 
@@ -1540,57 +1783,116 @@ public:
     np02_boundary *get_boundaries_head() const{ return m_boundaries_head; }
     np02_boundary *get_boundaries_tail() const{ return m_boundaries_tail; }
     size_t get_boundary_count() const;
+	np02_shape *get_first_shape() const;
+    size_t get_shape_count() const;
+    void get_shape_count_lower_bound( const size_t& max_shape_count_l_b,
+        size_t *count_l_b ) const;
+    np02_loc_grid *get_loc_grid() const;
+    void insert_region_in_loc_grid(np02_loc_grid *loc_grid);
+    void remove_region_from_loc_grid();
     void get_bb(np02_xy *xy_min, np02_xy *xy_max, bool *valid) const;
+    double get_boundary_gap_sum() const;
+    void translate(const np02_xy& dxy);
+    void translate_no_loc_grid(const np02_xy& dxy);
+    void rotate(const np02_xy& rot_ctr, const double& rot_deg);
+    void rotate_no_loc_grid(const np02_xy& rot_ctr, const double& rot_deg);
+    void invert();
+    np02_region *copy_region(np02_shp_alloc *shp_alloc=NULL) const;
+    void init_from_region( const np02_region *master );
+    int compare_region( const np02_region *other ) const;
     uint64_t hash( const uint64_t& h_in=0 ) const;
+    double get_distance_from_xy(const np02_xy& xy, np02_xy *near_xy=NULL,
+        double *d_from2 = NULL, bool *valid = NULL)const;
+    double get_distance_from_xy( const np02_xy& xy, np02_xy *near_xy,
+        double *d_from2, bool *valid, np02_shape_vec *temp_shape_vec )const;
+    double get_distance_from_xy_exh_srch(const np02_xy& xy,
+        np02_xy *near_xy=NULL, double *d_from2 = NULL, bool *valid = NULL)const;
+    int verify_distance_from_xy_result(const np02_xy& xy, const double& d_from,
+        np02_xy near_xy, const double& d_from2, const bool& valid, char *err_msg,
+        const size_t err_msg_capacity, size_t *err_msg_pos ) const;
     int verify_data( char *err_msg, const size_t err_msg_capacity,
                      size_t *err_msg_pos ) const;
     int verify_data_boundaries_head_tail( char *err_msg,
         const size_t err_msg_capacity, size_t *err_msg_pos ) const;
+    static int verify_loc_grid_properly_contains_region(
+        const np02_loc_grid* loc_grid, const np02_region* region,
+        char* err_msg, const size_t err_msg_capacity,
+        size_t* err_msg_pos);
     std::ostream& ostream_output(std::ostream& os) const;
     void write_bmp_file(const np02_xy& xy_min,
         const double& pixel_num, const np02_bmp_color& color,
-        np02_bmp_file *bmp_file) const;
+        np02_bmp_file *bmp_file, const time_t time_limit=0) const;
+    void write_bmp_file_edge(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        np02_bmp_file *bmp_file, const time_t time_limit = 0) const;
     void write_dxf_file(const std::string& layer,
         const uint8_t& color, np02_dxf_file *dxf_file) const;
+    static void init_usa_flag( const np02_xy& bb_xy_min,
+        const np02_xy& bb_xy_max, np02_region *red_rgn,
+        np02_region *white_rgn, np02_region *blue_rgn );
+private:
+    void write_bmp_file_impl(const np02_xy& xy_min,
+        const double& pixel_num, const np02_bmp_color& color,
+        const bool& edges_only, np02_bmp_file *bmp_file,
+        const time_t time_limit) const;
 };
 
-enum np02_region_operation_type{
-    NP02_REGION_OPERATION_TYPE_OFFSET,
-    NP02_REGION_OPERATION_TYPE_INTERSECTION,
-    NP02_REGION_OPERATION_TYPE_UNION,
-    NP02_REGION_OPERATION_TYPE_INVERSE,
-    NP02_REGION_OPERATION_TYPE_VORONOI,
+typedef std::vector<np02_region *> np02_region_vec;
+typedef np02_region_vec::iterator np02_region_vec_itr;
+typedef np02_region_vec::const_iterator np02_region_vec_citr;
 
-    NP02_REGION_OPERATION_TYPE_COUNT
-};
+uint64_t np02_region_vec_hash( const np02_region_vec& v, 
+    const uint64_t& h_in = 0 );
+void np02_region_vec_copy_regions( const np02_region_vec& v, 
+    np02_region_vec *destination, np02_shp_alloc *shp_alloc=NULL);
+int np02_region_vec_compare( const np02_region_vec& x,
+    const np02_region_vec& y );
+void np02_region_vec_get_bb(const np02_region_vec& v, np02_xy* xy_min,
+    np02_xy* xy_max, bool* valid);
+size_t np02_region_vec_get_shape_count(const np02_region_vec& v);
 
-class np02_region_operation{
+
+class np02_quad_tree{
 private:
-    typedef std::vector<np02_region *> region_vec;
-
-private:
-    /* input */
-    np02_region_operation_type m_operation_type;
-    region_vec m_input_regions;
-    double m_offset;
-    double m_tolerance;
-
-    /* working data */
     np02_shp_alloc *m_shp_alloc;
-    np02_loc_grid *m_loc_grid;
-
-    /* candidate shapes */
-
-    /* quad tree */
-
-    /* quad tree boundary loops */
-
-    /* augmented candidate shape loops */
-
-    /* output */
-    int m_error_count;
-    region_vec m_output_regions;
+    np02_shape_aux_data m_data;
+    np02_quad_tree *m_parent;
+    np02_quad_tree *m_child_se;
+    np02_quad_tree *m_child_sw;
+    np02_quad_tree *m_child_ne;
+    np02_quad_tree *m_child_nw;
+    double m_size;
+    np02_xy m_ctr;
 };
+
+
+enum np02_rgn_op_qt_type{
+    NP02_RGN_OP_QT_TYPE_NONE = 0,
+    NP02_RGN_OP_QT_TYPE_IN = 1,      /* clearly inside*/
+    NP02_RGN_OP_QT_TYPE_OUT = 2,
+    NP02_RGN_OP_QT_TYPE_IN_OUT = 3,
+    NP02_RGN_OP_QT_TYPE_DEEP = 4,          /* not valid */
+    NP02_RGN_OP_QT_TYPE_DEEP_IN = 5,
+    NP02_RGN_OP_QT_TYPE_DEEP_OUT = 6,
+    NP02_RGN_OP_QT_TYPE_DEEP_IN_OUT_INVALID = 7, /* not valid */
+
+    NP02_RGN_OP_QT_TYPE_COUNT
+};
+
+
+class np02_region_operation_qt_data{
+private:
+    np02_rgn_op_qt_type m_qt_type;
+
+    /*TODO: make array[2] of np02_voronoi_qt_data_shp */
+    np02_shape *m_near_rgn_shape;
+    np02_shape *m_second_near_rgn_shape;
+    np02_xy m_near_xy;
+    np02_xy m_second_near_xy;
+    double m_near_distance;
+    double m_second_near_distance;
+};
+
 
 class np02_augmented_boundary_shape_data{
 private:
@@ -1607,72 +1909,12 @@ private:
 };
 
 
-
-union np02_shape_aux_data{
-private:
-    const void *m_cptr;
-    void *m_ptr;
-    uint64_t m_idx;
-public:
-    np02_shape_aux_data(): m_idx(0){
-        AUTO_ASSERT(NULL == m_cptr);AUTO_ASSERT(NULL == m_ptr);}
-    np02_shape_aux_data(const np02_shape_aux_data& master): m_idx(master.m_idx){
-        AUTO_ASSERT(m_cptr == master.m_cptr);
-        AUTO_ASSERT(m_ptr == master.m_ptr); }
-    np02_shape_aux_data& operator=(const np02_shape_aux_data& master){
-        m_idx = master.m_idx; AUTO_ASSERT(m_cptr == master.m_cptr);
-        AUTO_ASSERT(m_ptr == master.m_ptr); return *this; }
-    void set_cptr(const void *p){ m_cptr = p; }
-    const void *get_cptr() const{ return m_cptr; }
-    void set_ptr(void *p){ m_ptr = p; }
-    void *get_ptr() const{ return m_ptr; }
-    void set_ptr(const uint64_t& i){ m_idx = i; }
-    const uint64_t& get_idx() const{ return m_idx; }
-};
-
-class np02_quad_tree{
-private:
-    np02_shp_alloc *m_shp_alloc;
-    np02_shape_aux_data m_data;
-    np02_quad_tree *m_parent;
-    np02_quad_tree *m_child_se;
-    np02_quad_tree *m_child_sw;
-    np02_quad_tree *m_child_ne;
-    np02_quad_tree *m_child_nw;
-    double m_size;
-    np02_xy m_ctr;
-};
-
-enum np02_rgn_op_qt_type{
-    NP02_RGN_OP_QT_TYPE_NONE = 0,
-    NP02_RGN_OP_QT_TYPE_IN = 1,      /* clearly inside*/
-    NP02_RGN_OP_QT_TYPE_OUT = 2,
-    NP02_RGN_OP_QT_TYPE_IN_OUT = 3,
-    NP02_RGN_OP_QT_TYPE_DEEP = 4,          /* not valid */
-    NP02_RGN_OP_QT_TYPE_DEEP_IN = 5,
-    NP02_RGN_OP_QT_TYPE_DEEP_OUT = 6,
-    NP02_RGN_OP_QT_TYPE_DEEP_IN_OUT_INVALID = 7, /* not valid */
-
-    NP02_RGN_OP_QT_TYPE_COUNT
-
-};
-
-class np02_region_operation_qt_data{
-private:
-    np02_rgn_op_qt_type m_qt_type;
-    np02_shape *m_near_rgn_shape;
-    np02_shape *m_second_near_rgn_shape;
-    np02_xy m_near_xy;
-    np02_xy m_second_near_xy;
-    double m_near_distance;
-    double m_second_near_distance;
-};
-
 struct np02_voronoi_qt_data_shp{
     np02_shape *m_shape;
     double m_distance;
     double m_near_pt;
 };
+
 
 class np02_voronoi_qt_data{
 public:
@@ -1686,6 +1928,106 @@ public:
 private:
     np02_voronoi_qt_data_shp m_near_shp_data[NEAR_STATUS_COUNT];
 };
+
+
+enum np02_region_operation_type{
+    NP02_REGION_OPERATION_TYPE_OFFSET,
+    NP02_REGION_OPERATION_TYPE_INTERSECTION,
+    NP02_REGION_OPERATION_TYPE_UNION,
+    NP02_REGION_OPERATION_TYPE_INVERSE,
+    NP02_REGION_OPERATION_TYPE_VORONOI,
+
+    NP02_REGION_OPERATION_TYPE_COUNT
+};
+
+
+class np02_region_operation{
+public:
+    typedef std::vector<np02_region *> region_vec;
+
+    struct init_params{
+    public:
+        np02_region_operation_type m_operation_type;
+        region_vec m_input_regions;
+        double m_offset;
+        double m_tolerance;
+    public:
+        init_params(): m_operation_type(NP02_REGION_OPERATION_TYPE_COUNT),
+           m_input_regions(), m_offset(0.0), m_tolerance(0.0){}
+       ~init_params();
+    };
+
+    struct result_params{
+    public:
+        int m_error_count;
+        region_vec m_output_regions; /* to be deleted by client code */
+    public:
+        result_params(): m_error_count(0),m_output_regions(){}
+       ~result_params();
+    };
+private:
+    typedef std::vector<np02_region_operation_qt_data *> qt_data_vec;
+    typedef std::vector<np02_augmented_boundary_shape_data *> aug_shp_data_vec;
+
+private:
+    /* input */
+    np02_region_operation_type m_operation_type;
+    region_vec m_input_regions;
+    double m_offset;
+    double m_tolerance;
+
+    /* working data */
+    np02_shp_alloc *m_shp_alloc;
+    np02_loc_grid *m_loc_grid;
+
+    /* candidate shapes */
+    region_vec m_candidate_shp_rgns;
+
+    /* voronoi candidate shapes */
+
+    /* quad tree */
+    np02_quad_tree *m_qt;
+    qt_data_vec m_qt_data_vec;
+
+    /* quad tree boundary loops */
+    region_vec m_qt_bdry_rgns;
+
+    /* augmented candidate shape loops */
+    region_vec m_aug_cand_shp_rgns;
+    aug_shp_data_vec m_aug_shp_data_vec;
+
+    /* output */
+    int m_error_count;
+    region_vec m_output_regions; /* to be deleted by client code */
+public:
+    np02_region_operation();
+    np02_region_operation( const init_params& p );
+   ~np02_region_operation();
+    void init( const init_params& p );
+    void execute();
+    void get_result( result_params *p ) const;
+private:
+    /* Initialize m_shp_alloc, m_loc_grid */
+
+    /* 
+    create candidate shapes
+    NP02_REGION_OPERATION_TYPE_OFFSET => offset shapes
+    NP02_REGION_OPERATION_TYPE_INTERSECTION => do nothing
+    NP02_REGION_OPERATION_TYPE_UNION => do nothing
+    NP02_REGION_OPERATION_TYPE_INVERSE => do nothing
+    NP02_REGION_OPERATION_TYPE_VORONOI => voronoi candidate shapes
+    */ 
+
+    /* create quad tree */
+
+    /* create quad tree boundary loops */
+
+    /* create augmented candidate shape loops */
+
+    /* create output regions */
+
+};
+
 
 /* Shape Allocator */
 class np02_shp_alloc{
@@ -1868,6 +2210,23 @@ private:
         const np02_shape *m_err_shape_a;
         const np02_shape *m_err_shape_b;
         std::string *m_debug_str_out;
+        bmp_debug_file_params():
+            m_bmp_file(NULL),
+            m_header(),
+            m_footer(),
+            m_xy_min(0.0,0.0),
+            m_pixel_num(1.0),
+            m_basic_length(1.0),
+            m_err_xy_found(false),
+            m_draw_overlap_circle(false),
+            m_draw_connecting_line(false),
+            m_shapes(NULL),
+            m_color_vec(NULL),
+            m_err_xy_a(NULL),
+            m_err_xy_b(NULL),
+            m_err_shape_a(NULL),
+            m_err_shape_b(NULL),
+            m_debug_str_out(NULL){}
         };
 
 private:
@@ -1915,8 +2274,20 @@ private:
     np02_shape *make_rand_shape( np02_shp_alloc *shp_alloc,
         const np02_xy& shp_ctr, const double& basic_length,
         np02_bmp_color *color );
+    void make_rand_regions( np02_shp_alloc *shp_alloc, const int& ww,
+        const int& hh,  const double& basic_length,
+        np02_region_vec *regions, std::vector<np02_bmp_color> *colors );
+    np02_region * make_rand_region( np02_shp_alloc *shp_alloc,
+        const np02_xy& rgn_ctr, const double& basic_length, np02_bmp_color *color );
+    np02_region * make_rand_region_polygon_w_holes( np02_shp_alloc *shp_alloc,
+        const np02_xy& rgn_ctr, const double& basic_length,  np02_bmp_color *color );
+    np02_region * make_rand_region_rect_w_circ_holes( 
+        np02_shp_alloc *shp_alloc, const np02_xy& rgn_ctr,
+        const double& basic_length, np02_bmp_color *color );
     void free_shapes( np02_shp_alloc *shp_alloc, np02_shape_vec *shapes );
-    void draw_debug_shapes( const bmp_debug_file_params& p);
+    void free_regions( np02_shp_alloc *shp_alloc, np02_region_vec *regions );
+    void draw_debug_shapes( const bmp_debug_file_params& p,
+        const bool& edges_only = false);
     void print_temp_buf_to_test_buf( const char *filename, const int line_num );
     void print_and_clear_test_buf();
 

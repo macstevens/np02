@@ -13,7 +13,8 @@ Reference: https://opensource.org/licenses/ISC
 
 int main (int argc, char *argv[])
 {
-CF01_SET_JRNL_WRITE_MODE_ON();
+//CF01_SET_JRNL_WRITE_MODE_ON();
+CF01_SET_JRNL_WRITE_MODE_ON_ERROR();
 return np02::np02_test_main::run(argc, argv);
 }
 

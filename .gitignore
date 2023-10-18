@@ -14,3 +14,11 @@
 /gcc/Debug/
 /gcc/Profile/
 /gcc/Release/
+/msvc/np02_test/*.bmp
+/msvc/np02_test/cf01_jrnl.txt
+/gcc/test/*.bmp
+/gcc/test/cf01_jrnl.txt
+/gcc/test/*.txt
+/msvc/test/cf01_jrnl.txt
+/msvc/test/*.bmp
+/msvc/test/*.txt

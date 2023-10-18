@@ -1,4 +1,4 @@
-np02 -- Newport Algorithm 02 Library Version 0.0.4
+np02 -- Newport Algorithm 02 Library Version 0.0.5
 
 
 LICENSE
@@ -24,8 +24,10 @@ This library supports efficient 2D Shape Algorithms:
 
 
 DEPENDENCIES
-  CF01 version 0.2.0:  https://github.com/macstevens/cf01/commit/e8c3e84f63ca31855c25f1df6956a3437be66b31
+  CF01 version 0.3.0:  https://github.com/macstevens/cf01/commit/2835181b5b722a5c46421a88fae42e5d90d6d3d2
 
+
+=== CYGWIN/GCC ===
 
 BUILD TOOLS
 
@@ -47,7 +49,7 @@ BUILD
 Requires cf01 library.
 
 1. Start Cygwin
-2. >cd np02/slickedit_gcc
+2. >cd np02/gcc
 3. >make --makefile=np02.mak CFG=Debug
 4. >make --makefile=np02_test.mak CFG=Debug
 (configurations = Debug, Release, or Profile)
@@ -56,7 +58,7 @@ Requires cf01 library.
 TEST
 
 1. Start Cygwin
-2. >cd np02/slickedit_gcc/Debug
+2. >cd np02/gcc/Debug
 3. >./np02_test.exe --test=1 --test-rand-seed=17 --test-iterations=10
 4. >./np02_test.exe --test=2 --test-rand-seed=43 --test-iterations=10
 5. Open bitmap files found in same directory.
@@ -73,6 +75,39 @@ In same directory as np02_test.exe, place the following files:
 These can be found in [CYGWIN INSTALLATION DIRECTORY]\cygwin\cygwin64\bin
 
 
+=== WINDOWS/MICROSOFT VISUAL STUDIO ===
+
+BUILD TOOLS
+
+  Microsoft Visual Studio Professional 2022 (2)
+    Version 17.6.5
+    VisualStudio.17.Release/17.6.5+33829.357
+    Microsoft .NET Framework
+    Version 4.8.09037
+
+  Visual C++ 2022   00476-80000-00000-AA260
+    Microsoft Visual C++ 2022
+
+
+BUILD
+
+1. Open np02\msvc\np02.sln in Microsoft Visual Studio
+2. Configuration: Debug/x64
+3. Build np02_test project
+
+
+TEST
+1. Open command termina.
+2. >cd cf01\msvc\x64\Debug
+3. >np02_test.exe --test=1 --test-rand-seed=17 --test-iterations=10
+4. >np02_test.exe --test=2 --test-rand-seed=43 --test-iterations=10
+5. Open bitmap files found in same directory.
+
+
+=== ===
+
+
+
 
 ROADMAP
 
@@ -83,13 +118,13 @@ ROADMAP
     Hash Consistency Check
       Initial Implementation: Status=Operational
 
-    Depth increment object: Status=Concept
+    Depth increment object: Status=Operational
 
   NP01
     Point Pairer: Done
     
   NP02
-    Allocator, Locator Grid, Circle, Arc, Rect, LineSeg: Status=Operational
+    Allocator, Locator Grid, Circle, Arc, Rect, LineSeg, Region: Status=Operational
       NURBS: Status=Concept
       Distance, near point: Status=Operational
       Intersection: Status=In Progress
@@ -126,7 +161,7 @@ ROADMAP
     
 ROADMAP DETAILS
   CF01    
-    Depth increment object: Status=Concept
+    Top-Down Procedural Programming GUI: Status=Concept
 
   NP01
     Point Pairer

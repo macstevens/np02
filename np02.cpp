@@ -30,6 +30,7 @@ Reference: https://opensource.org/licenses/ISC
 #include "cf01.h"
     #define AA_INCR_CALL_DEPTH()        CF01_AA_INCR_CALL_DEPTH()
     #define AA_DECR_CALL_DEPTH()        CF01_AA_DECR_CALL_DEPTH()
+    #define AA_CALL_DEPTH_BLOCK()       CF01_AA_CALL_DEPTH_BLOCK()
     #define AUTO_ASSERT( _condition )   CF01_AUTO_ASSERT(_condition)
     #define AA_ALWAYS_ASSERT( _condition ) \
                   CF01_AA_XDBG_ASSERT((_condition), CF01_AA_DEBUG_LEVEL_0)
@@ -45,7 +46,8 @@ Reference: https://opensource.org/licenses/ISC
     #define AA_DEBUG_LEVEL_3            CF01_AA_DEBUG_LEVEL_3
 #else
     #define AA_INCR_CALL_DEPTH()        
-    #define AA_DECR_CALL_DEPTH()        
+    #define AA_DECR_CALL_DEPTH()
+    #define AA_CALL_DEPTH_BLOCK()
     #define AUTO_ASSERT( _condition )   assert(_condition)
     #define AA_ALWAYS_ASSERT( _condition )   assert(_condition)
     #define AA_SHOULD_RUN_XDBG(_dbg_lvl)  (0)
@@ -64,7 +66,7 @@ namespace np02 {
 
 
 const char *np02_test_main::m_prog_name = "NP02_TEST";
-const char *np02_test_main::m_version_str = "0.0.4" 
+const char *np02_test_main::m_version_str = "0.0.5" 
      " " __DATE__ " " __TIME__
     ;
 
