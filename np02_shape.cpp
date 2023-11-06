@@ -187,6 +187,9 @@ if((NP02_SHAPE_HANDLE_TYPE_SHAPE != m_hndl_type) ||
     }
 AUTO_ASSERT(m_object_ptr.m_shape == shape);
 AUTO_ASSERT( ( NULL == shape ) || ( shape->get_shp_alloc() == m_shp_alloc ) );
+if(NULL != shape){
+    shape->set_shape_owner(this);
+    }
 }
 
 void np02_shape_handle::set_region(np02_region *region){
@@ -198,6 +201,9 @@ if((NP02_SHAPE_HANDLE_TYPE_REGION != m_hndl_type) ||
     }
 AUTO_ASSERT(m_object_ptr.m_region == region);
 AUTO_ASSERT((NULL == region) || (region->get_shp_alloc() == m_shp_alloc));
+if(NULL != region){
+    region->set_owner(this);
+    }
 }
 
 np02_shape *np02_shape_handle::get_shape() const{
@@ -358,6 +364,7 @@ switch ( m_hndl_type ){
                 delete  m_object_ptr.m_shape;
                 }
             else{
+                m_object_ptr.m_shape->set_shape_owner(NULL);
                 m_shp_alloc->free_shape(m_object_ptr.m_shape);
                 }
             m_object_ptr.m_shape = NULL;
@@ -370,6 +377,7 @@ switch ( m_hndl_type ){
                 delete  m_object_ptr.m_region;
                 }
             else{
+                m_object_ptr.m_region->set_owner(NULL);
                 m_shp_alloc->free_region(m_object_ptr.m_region);
                 }
             m_object_ptr.m_region = NULL;
