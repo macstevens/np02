@@ -5246,24 +5246,18 @@ else{
         (fwd_cross_0 - fwd_cross) : (fwd_cross - fwd_cross_1);
     d = (d_fwd > d_cross) ? d_fwd : d_cross;
     if(NULL != near_xy){
-        if( ( fwd_dot_0 <= fwd_dot ) && ( fwd_dot <= fwd_dot_1 ) &&
-            ( fwd_cross_0 <= fwd_cross ) && ( fwd_cross <= fwd_cross_1 ) ){
-            /* xy is inside rectangle */
-            *near_xy = xy;
+        double fd = 0.0;
+        double fc = 0.0;
+        if(d_fwd > d_cross){
+            fd = (fwd_dot < m_fwd_dot_ctr ) ? fwd_dot_0 : fwd_dot_1;
+            fc = fwd_cross;
             }
         else{
-            double fd, fc;
-            if(d_fwd > d_cross){
-                fd = (fwd_dot < m_fwd_dot_ctr ) ? fwd_dot_0 : fwd_dot_1;
-                fc = fwd_cross;
-                }
-            else{
-                fd = fwd_dot;
-                fc = ( fwd_cross < m_fwd_cross_ctr ) ? fwd_cross_0 : fwd_cross_1;
-                }
-            near_xy->set_x((fd * m_fwd.get_x()) - (fc * m_fwd.get_y()));
-            near_xy->set_y((fd * m_fwd.get_y()) + (fc * m_fwd.get_x()));
+            fd = fwd_dot;
+            fc = ( fwd_cross < m_fwd_cross_ctr ) ? fwd_cross_0 : fwd_cross_1;
             }
+        near_xy->set_x((fd * m_fwd.get_x()) - (fc * m_fwd.get_y()));
+        near_xy->set_y((fd * m_fwd.get_y()) + (fc * m_fwd.get_x()));
         }
     }
 return d;
@@ -6550,13 +6544,8 @@ if(fwd_dot < m_fwd_dot_0){
     dsq = (dx*dx) + (dy*dy);
     d_ctr = sqrt(dsq);
     if(NULL != near_xy){
-        if( d_ctr > hw ){
-            near_xy->set_x(m_p_0.get_x() + ((hw * dx) / d_ctr)); 
-            near_xy->set_y(m_p_0.get_y() + ((hw * dy) / d_ctr)); 
-            }
-        else{
-            *near_xy = xy;
-            }
+        near_xy->set_x(m_p_0.get_x() + ((hw * dx) / d_ctr)); 
+        near_xy->set_y(m_p_0.get_y() + ((hw * dy) / d_ctr));
         }
     }
 else if(fwd_dot > m_fwd_dot_1){
@@ -6566,13 +6555,8 @@ else if(fwd_dot > m_fwd_dot_1){
     dsq = (dx*dx) + (dy*dy);
     d_ctr = sqrt(dsq);
     if(NULL != near_xy){
-        if( d_ctr > hw ){ 
-            near_xy->set_x(m_p_1.get_x() + ((hw * dx) / d_ctr)); 
-            near_xy->set_y(m_p_1.get_y() + ((hw * dy) / d_ctr)); 
-            }
-        else{
-            *near_xy = xy;
-            }
+        near_xy->set_x(m_p_1.get_x() + ((hw * dx) / d_ctr)); 
+        near_xy->set_y(m_p_1.get_y() + ((hw * dy) / d_ctr));
         }
     }
 else{
@@ -6581,14 +6565,9 @@ else{
                              ( m_fwd.get_y() * xy.get_x() );
     d_ctr = fabs(fwd_cross - m_fwd_cross_01);
     if(NULL != near_xy){
-        if( d_ctr > hw ){
-            const double cross = m_fwd_cross_01 + ((fwd_cross > m_fwd_cross_01) ? hw : -hw );
-            near_xy->set_x( (fwd_dot * m_fwd.get_x()) - (cross * m_fwd.get_y()) );
-            near_xy->set_y( (fwd_dot * m_fwd.get_y()) + (cross * m_fwd.get_x()) );
-            }
-        else{
-            *near_xy = xy;
-            }
+        const double cross = m_fwd_cross_01 + ((fwd_cross > m_fwd_cross_01) ? hw : -hw );
+        near_xy->set_x( (fwd_dot * m_fwd.get_x()) - (cross * m_fwd.get_y()) );
+        near_xy->set_y( (fwd_dot * m_fwd.get_y()) + (cross * m_fwd.get_x()) );
         }
     }
 
@@ -12093,6 +12072,70 @@ for( i = 0; i < shape_vec.size(); ++i){
             }
         }
     local_shapes.clear();
+    }
+
+/*
+For each shape
+    Choose random nearby point xy.
+    Compute distance to shape and near_xy.
+    Check that distance matches distance(xy -> near_xy)
+*/
+for( i = 0; i < shape_vec.size(); ++i){
+    const np02_shape *shape_i = shape_vec.at(i);
+    np02_xy bb_xy_min(0.0,0.0);
+    np02_xy bb_xy_max(0.0,0.0);
+    shape_i->get_bb(&bb_xy_min, &bb_xy_max);
+    const double bb_x_range = bb_xy_max.get_x() - bb_xy_min.get_x();
+    const double bb_y_range = bb_xy_max.get_y() - bb_xy_min.get_y();
+    advance_rand();
+    const double x_test =
+        get_rand_dbl(bb_xy_min.get_x() - (bb_x_range/2.0),
+                     bb_xy_max.get_x() + (bb_x_range/2.0));
+    advance_rand();
+    const double y_test =
+        get_rand_dbl(bb_xy_min.get_y() - (bb_y_range/2.0),
+                     bb_xy_max.get_y() + (bb_y_range/2.0));
+    const np02_xy xy(x_test, y_test);
+    np02_xy near_xy(0.0,0.0);
+    const double d_from = shape_i->get_distance_from_xy(xy, &near_xy);
+    const double d_from_check = xy.get_distance_to(near_xy);
+    const double d_from_err = fabs( fabs(d_from) - d_from_check );
+    const double max_allowed_d_from_err = (bb_x_range + bb_y_range) *
+        np02_shape::m_small_ratio;
+    if( d_from_err > max_allowed_d_from_err ){
+        ++err_cnt;
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, 
+            &m_temp_err_msg_pos,
+            "shape_i get_distance_from_xy() d_from=%g, d_from_check=%g",
+            d_from, d_from_check); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ );
+        if(!err_xy_found ){
+            err_xy_found = true;
+            should_write_file = true;
+            err_xy_a = xy;
+            err_xy_b = near_xy;
+            err_shape_a = shape_i;
+            err_shape_b = NULL;
+            }
+        }
+
+    np02_xy near_xy2(0.0,0.0);
+    const double d_from2 = shape_i->get_distance_from_xy(near_xy, &near_xy2);
+    if( fabs(d_from2) > max_allowed_d_from_err ){
+        ++err_cnt;
+        np02_snprintf(m_temp_err_msg, TEMP_ERR_MSG_CAP, 
+            &m_temp_err_msg_pos,
+            "shape_i get_distance_from_xy() d_from2=%g", d_from2 ); 
+        print_temp_buf_to_test_buf( __FILE__, __LINE__ );
+        if(!err_xy_found ){
+            err_xy_found = true;
+            should_write_file = true;
+            err_xy_a = xy;
+            err_xy_b = near_xy;
+            err_shape_a = shape_i;
+            err_shape_b = NULL;
+            }
+        }
     }
 
 advance_rand();
